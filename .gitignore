@@ -1,0 +1,22 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.env
+.DS_Store
+*.log
+.vscode/
+.idea/
+
+# Credentials (SECURITY: Never commit these!)
+credentials/
+*.json
+service-account-key.json
+.streamlit/secrets.toml
