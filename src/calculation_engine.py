@@ -566,7 +566,7 @@ class KPICalculationEngine:
             tech_group = tech_group.sort_values(by=time_order_col)
             tech_cancel_mask = cancel_mask.loc[tech_group.index]
             
-            # For each day with cancellations, find first cancelled and last non-cancelled BEFORE that cancelled
+            # For each day with cancellations, find first cancelled and last non-cancelled BEFORE that cancelled (using positional order)
             cancel_days = tech_group.loc[tech_cancel_mask, 'Intervention Date'].dropna().unique()
             for day in cancel_days:
                 day_rows = tech_group[tech_group['Intervention Date'] == day]
@@ -575,13 +575,13 @@ class KPICalculationEngine:
                 if day_cancelled.empty:
                     continue
                 
-                first_cancel_idx = day_cancelled.index[0]
-                first_cancel = df.loc[first_cancel_idx]
+                # Position of first cancelled within technician-ordered rows
+                first_cancel_pos = tech_group.index.get_loc(day_cancelled.index[0])
+                first_cancel = day_cancelled.iloc[0]
                 
-                # Rows before the first cancel (any date) to find last performed job
-                prior_rows = tech_group.loc[tech_group.index < first_cancel_idx]
-                prior_done = prior_rows[~tech_cancel_mask.loc[prior_rows.index]]
-                prior_done = prior_done.dropna(subset=['Intervention Done Date'])
+                prior_rows = tech_group.iloc[:first_cancel_pos]
+                prior_done_mask = ~tech_cancel_mask.loc[prior_rows.index]
+                prior_done = prior_rows[prior_done_mask].dropna(subset=['Intervention Done Date'])
                 last_done = prior_done.iloc[-1] if not prior_done.empty else None
                 
                 dist = None
