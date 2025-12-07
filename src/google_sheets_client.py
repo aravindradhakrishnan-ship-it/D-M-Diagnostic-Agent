@@ -205,9 +205,17 @@ class GoogleSheetsClient:
             print(f"⚠️  Permissions sheet missing 'Email' or 'Allowed Countries' columns. Found: {df.columns.tolist()}")
             return permissions
             
+        print(f"DEBUG: Reading permissions from columns: {email_col}, {countries_col}")
+        
         for _, row in df.iterrows():
-            email = str(row[email_col]).strip()
-            countries_str = str(row[countries_col]).strip()
+            email_raw = str(row[email_col])
+            countries_raw = str(row[countries_col])
+            
+            # Normalize: lower case and strip
+            email = email_raw.strip().lower()
+            countries_str = countries_raw.strip()
+            
+            # print(f"DEBUG: Processing row - Email: '{email}', Countries: '{countries_str}'")
             
             if not email or not countries_str:
                 continue
@@ -219,7 +227,7 @@ class GoogleSheetsClient:
                 countries = [c.strip() for c in countries_str.split(',') if c.strip()]
                 permissions[email] = countries
                 
-        print(f"✅ Loaded permissions for {len(permissions)} users")
+        print(f"✅ Loaded permissions for users: {list(permissions.keys())}")
         return permissions
 
     def list_worksheets(self) -> List[str]:
