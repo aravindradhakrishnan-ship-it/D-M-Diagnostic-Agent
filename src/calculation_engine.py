@@ -61,9 +61,10 @@ class KPICalculationEngine:
         # Technician column: use only the explicit header we expect
         tech_col = next((c for c in df.columns if c.strip().lower() == 'chosen team / technician'), None)
         status_col = next((c for c in df.columns if 'status' in c.lower()), None)
+        planned_col = next((c for c in df.columns if 'planned' in c.lower()), None)
         
-        st.write(f"🔍 DEBUG: Columns Found - Tech: {tech_col}, Status: {status_col}")
-        # st.write(f"DEBUG: All Columns: {df.columns.tolist()}") # verbose
+        st.write(f"🔍 DEBUG: Columns Found - Tech: {tech_col}, Status: {status_col}, Planned: {planned_col}")
+        st.write(f"DEBUG: All Columns: {df.columns.tolist()}") # verbose
     
     def __init__(self, google_sheets_client):
         """
@@ -532,8 +533,9 @@ class KPICalculationEngine:
         # Technician column: use only the explicit header we expect
         tech_col = next((c for c in df.columns if c.strip().lower() == 'chosen team / technician'), None)
         status_col = next((c for c in df.columns if 'status' in c.lower()), None)
+        planned_col = next((c for c in df.columns if 'planned' in c.lower()), None)
         
-        print(f"DEBUG: Analysis Columns Found - Tech: {tech_col}, Status: {status_col}")
+        print(f"DEBUG: Analysis Columns Found - Tech: {tech_col}, Status: {status_col}, Planned: {planned_col}")
         print(f"DEBUG: All Columns: {df.columns.tolist()}")
 
         if not tech_col or not status_col:
@@ -545,54 +547,50 @@ class KPICalculationEngine:
              print(f"DEBUG: Unique Statuses: {df[status_col].unique()}")
             
         # Ensure date columns are datetime
-        for col in ['Intervention Start Date', 'Intervention Done Date']:
-            if col in df.columns:
+        for col in ['Intervention Start Date', 'Intervention Done Date', planned_col if 'planned_col' in locals() else None]:
+            if col and col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce')
 
-        # Sort by Technician and Start Date
-        df = df.sort_values(by=[tech_col, 'Intervention Start Date'])
+        # Sort by Technician and planned/start date to find "first cancelled" in planned order
+        time_order_col = planned_col if planned_col else 'Intervention Start Date'
+        df = df.sort_values(by=[tech_col, time_order_col])
         
         analysis_results = []
         
-        # Group by technician to analyze sequence
-        for technician, group in df.groupby(tech_col):
-            group = group.sort_values('Intervention Start Date')
+        # Group by technician and intervention date (day) to aggregate
+        df['Intervention Date'] = df[time_order_col].dt.date
+        for (technician, day), group in df.groupby([tech_col, 'Intervention Date']):
+            # identify cancelled rows for the day using status
+            cancelled_mask = group[status_col].astype(str).str.lower().str.contains('cancel') | group[status_col].astype(str).str.lower().str.contains('anul')
+            cancelled_jobs = group[cancelled_mask].sort_values(by=time_order_col)
+            non_cancelled = group[~cancelled_mask].sort_values(by='Intervention Done Date')
             
-            last_done_job = None
+            if cancelled_jobs.empty:
+                continue
             
-            for idx, curr_job in group.iterrows():
-                status_str = str(curr_job[status_col]).lower()
-                is_cancelled = 'cancel' in status_str or 'anul' in status_str
-                
-                if is_cancelled:
-                    # Current job is cancelled - check against last DONE job
-                    if last_done_job is not None:
-                        # Calculate metrics
-                        dist = self._haversine_distance(
-                            last_done_job.get('Latitude'), last_done_job.get('Longitude'),
-                            curr_job.get('Latitude'), curr_job.get('Longitude')
-                        )
-                        
-                        # Time gap: Start of Current - Done of Previous
-                        gap_minutes = None
-                        start_time = curr_job['Intervention Start Date']
-                        done_time = last_done_job['Intervention Done Date']
-                        
-                        if pd.notna(start_time) and pd.notna(done_time):
-                            delta = start_time - done_time
-                            gap_minutes = delta.total_seconds() / 60
-                        
-                        analysis_results.append({
-                            'Technician': technician,
-                            'Cancelled Job Start': start_time,
-                            'Prev Job Done': done_time,
-                            'Gap (min)': round(gap_minutes, 1) if gap_minutes is not None else None,
-                            'Distance (km)': round(dist, 1) if dist is not None else None,
-                            'Prev Job Status': last_done_job[status_col]
-                        })
-                else:
-                    # This is a "Done" (or at least non-cancelled) job
-                    # Update it as the potential "previous job" for the next cancellation
-                    last_done_job = curr_job
+            first_cancel = cancelled_jobs.iloc[0]
+            last_done = non_cancelled.iloc[-1] if not non_cancelled.empty else None
+            
+            dist = None
+            prev_done_date = None
+            prev_done_time = None
+            if last_done is not None:
+                dist = self._haversine_distance(
+                    last_done.get('Latitude'), last_done.get('Longitude'),
+                    first_cancel.get('Latitude'), first_cancel.get('Longitude')
+                )
+                done_dt = last_done.get('Intervention Done Date')
+                if pd.notna(done_dt):
+                    prev_done_date = done_dt.date()
+                    prev_done_time = done_dt.time()
+            
+            analysis_results.append({
+                'Technician': technician,
+                'Intervention date': first_cancel[time_order_col].date() if pd.notna(first_cancel[time_order_col]) else None,
+                'Number of cancelled jobs': len(cancelled_jobs),
+                'Prev Job Done Date': prev_done_date,
+                'Prev Job Done Time': prev_done_time,
+                'Distance (km)': round(dist, 1) if dist is not None else None
+            })
 
         return pd.DataFrame(analysis_results)
