@@ -89,7 +89,7 @@ def login_button():
         st.markdown("Please sign in with your authorized Google account to access the dashboard.")
         
         st.markdown(f"""
-            <a href="{auth_url}" target="_self" style="text-decoration:none;">
+            <a href="{auth_url}" target="_blank" style="text-decoration:none;">
                 <div style="
                     display: flex;
                     align-items: center;
