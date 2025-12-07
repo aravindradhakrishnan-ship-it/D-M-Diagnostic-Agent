@@ -442,16 +442,25 @@ class KPICalculationEngine:
         Analyze cancelled interventions to find context (previous job, distance, time).
         Uses wider dataset (skipping status filter) to find the actual previous performed job.
         """
+        print(f"DEBUG: analyze_cancellations called for KPI: {kpi_id}, Country: {country}, Week: {week}")
+
         # 1. Get KPI Definition
         kpi_defs = self.catalogue[self.catalogue['kpi_id'] == kpi_id]
         if kpi_defs.empty:
+            print(f"DEBUG: KPI Definition not found for ID: {kpi_id}")
             return pd.DataFrame()
         kpi_def = kpi_defs.iloc[0]
 
         # 2. Get Raw Data
-        raw_data = self.get_raw_data(kpi_def['source_table'])
+        source_table = kpi_def['source_table']
+        print(f"DEBUG: Loading raw data from table: {source_table}")
+        
+        raw_data = self.get_raw_data(source_table)
         if raw_data is None or raw_data.empty:
+            print(f"DEBUG: Raw data is None or Empty for table: {source_table}")
             return pd.DataFrame()
+        
+        print(f"DEBUG: Raw Data Loaded. Shape: {raw_data.shape}")
 
         # 3. Apply Filters EXCEPT strict status (to see Done + Cancelled)
         # We skip filters that look like they select for 'cancelled' status
@@ -463,7 +472,10 @@ class KPICalculationEngine:
             exclude_values=['cancelled', 'anulled', 'canceled']
         )
         
+        print(f"DEBUG: Data Shape after filtering (excluding 'cancelled'): {df.shape}")
+        
         if df.empty:
+            print("DEBUG: Filtered DataFrame is empty!")
             return pd.DataFrame()
 
         # Check required columns
