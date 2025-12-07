@@ -471,10 +471,17 @@ class KPICalculationEngine:
         # flexible check for Technician Name
         tech_col = next((c for c in df.columns if 'technician' in c.lower() and 'name' in c.lower()), None)
         status_col = next((c for c in df.columns if 'status' in c.lower()), None)
+        
+        print(f"DEBUG: Analysis Columns Found - Tech: {tech_col}, Status: {status_col}")
+        print(f"DEBUG: All Columns: {df.columns.tolist()}")
 
         if not tech_col or not status_col:
             print(f"⚠️ Missing columns for analysis. Tech: {tech_col}, Status: {status_col}")
             return pd.DataFrame()
+            
+        print(f"DEBUG: Data Shape after filtering: {df.shape}")
+        if not df.empty and status_col:
+             print(f"DEBUG: Unique Statuses: {df[status_col].unique()}")
             
         # Ensure date columns are datetime
         for col in ['Intervention Start Date', 'Intervention Done Date']:
