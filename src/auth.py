@@ -37,6 +37,16 @@ def check_authentication():
         st.session_state["authentication_status"] = None
 
     if st.session_state["authentication_status"]:
+        email = st.session_state.get("email")
+        if email:
+            perms = get_user_permissions(email)
+            st.error(f"DEBUG: Logged in as: {email}")
+            st.warning(f"DEBUG: Permissions found for {email}: {perms}")
+            
+            # Also show ALL cached permissions to understand what's loaded
+            all_perms = get_permissions_from_sheet()
+            st.info(f"DEBUG: All Permissions from Sheet: {list(all_perms.keys())}")
+            
         return True
 
     # Check for Mock Mode
