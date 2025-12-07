@@ -141,11 +141,30 @@ def get_available_weeks(engine):
     """Get list of available weeks from raw data."""
     weeks = engine.get_available_weeks()
     
-    if len(weeks) > 0:
-        unique_weeks = sorted(set([str(w) for w in weeks if pd.notna(w) and w != '']))
-        return unique_weeks[-12:] if len(unique_weeks) > 12 else unique_weeks
-    
-    return [f"2025_W{i}" for i in range(36, 49)]
+    def parse_week(w):
+        try:
+            parts = re.split(r'[_-]', str(w))
+            if len(parts) >= 2:
+                year = int(parts[0])
+                week_num = int(parts[1].replace('W', '').replace('w', ''))
+                return year, week_num, str(w)
+        except Exception:
+            return None
+        return None
+
+    parsed = [p for p in (parse_week(w) for w in weeks if pd.notna(w) and w != '') if p]
+    parsed = sorted(set(parsed), key=lambda x: (x[0], x[1]))
+    ordered = [p[2] for p in parsed]
+
+    if not ordered:
+        return [f"2025_W{i}" for i in range(36, 49)]
+
+    # Exclude the most recent week and return the previous 12 (or fewer if not available)
+    if len(ordered) >= 13:
+        return ordered[-13:-1]
+    if len(ordered) > 1:
+        return ordered[:-1]
+    return ordered
 
 def calculate_change_pct(current, previous):
     """Calculate percentage change."""
@@ -544,14 +563,12 @@ def main():
             df, weeks = create_kpi_week_table_with_changes(engine, selected_country, selected_weeks)
         
         if len(df) > 0:
-            # Column headers
-            header_cols = st.columns([2.5, 0.8] + [1.1] * len(selected_weeks))
+            # Column headers (no Target column)
+            header_cols = st.columns([2.5] + [1.1] * len(selected_weeks))
             with header_cols[0]:
                 st.markdown('<div class="metric-header" style="text-align: left;">METRIC</div>', unsafe_allow_html=True)
-            with header_cols[1]:
-                st.markdown('<div class="metric-header">TARGET</div>', unsafe_allow_html=True)
             for i, week in enumerate(selected_weeks):
-                with header_cols[i + 2]:
+                with header_cols[i + 1]:
                     week_display = week.split('_')[-1] if '_' in week else week
                     st.markdown(f'<div class="metric-header">{week_display}</div>', unsafe_allow_html=True)
             
@@ -559,19 +576,15 @@ def main():
             
             # KPI rows with clickable cells
             for idx, row in df.iterrows():
-                cols = st.columns([2.5, 0.8] + [1.1] * len(selected_weeks))
+                cols = st.columns([2.5] + [1.1] * len(selected_weeks))
                 
                 # KPI name
                 with cols[0]:
                     st.markdown(f'<div class="kpi-name-cell">{row["KPI"]}</div>', unsafe_allow_html=True)
-                
-                # Target column
-                with cols[1]:
-                    st.markdown('<div class="value-cell">N/A</div>', unsafe_allow_html=True)
-                
+
                 # Week values - CLICKABLE CELLS
                 for i, week in enumerate(selected_weeks):
-                    with cols[i + 2]:
+                    with cols[i + 1]:
                         value = row[f"{week}_value"]
                         change = row[f"{week}_change"]
                         
