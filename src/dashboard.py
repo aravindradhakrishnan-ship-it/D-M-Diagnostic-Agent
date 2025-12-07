@@ -307,10 +307,11 @@ def show_cell_diagnostic(engine, kpi_id, kpi_name, country, week):
         st.markdown("#### 🚫 Cancellation Context")
         st.info("Analyzing Technician Capacity: Distance and time gap from previous job.")
         
-        with st.spinner("Analyzing trip data..."):
-            cancellation_df = engine.analyze_cancellations(kpi_id, country, week)
-            
-            if not cancellation_df.empty:
+        # with st.spinner("Analyzing trip data..."):
+        st.write("DEBUG: Calling engine.analyze_cancellations now...")
+        cancellation_df = engine.analyze_cancellations(kpi_id, country, week)
+        
+        if not cancellation_df.empty:
                 st.dataframe(
                     cancellation_df,
                     use_container_width=True,
