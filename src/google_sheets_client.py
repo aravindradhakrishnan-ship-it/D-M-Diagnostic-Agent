@@ -26,8 +26,9 @@ class GoogleSheetsClient:
         self.credentials_file = credentials_file or os.getenv('GOOGLE_SERVICE_ACCOUNT_FILE')
         self.sheet_id = sheet_id or os.getenv('GOOGLE_SHEET_ID')
         
-        if not self.credentials_file:
-            raise ValueError("Google service account file not specified. Set GOOGLE_SERVICE_ACCOUNT_FILE in .env")
+        # We will check for credentials availability in connect()
+        # if not self.credentials_file:
+        #     raise ValueError("Google service account file not specified. Set GOOGLE_SERVICE_ACCOUNT_FILE in .env")
         
         if not self.sheet_id:
             raise ValueError("Google Sheet ID not specified. Set GOOGLE_SHEET_ID in .env")
