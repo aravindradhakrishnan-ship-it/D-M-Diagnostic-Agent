@@ -2,15 +2,9 @@
 Google Sheets client for accessing KPI data.
 Handles authentication and data retrieval from Google Sheets.
 """
-import gspread
-from google.oauth2.service_account import Credentials
-import pandas as pd
-import os
-from typing import Optional, List, Dict
-from dotenv import load_dotenv
+import streamlit as st
 
-load_dotenv()
-
+# ... existing imports ...
 
 class GoogleSheetsClient:
     """Client for interacting with Google Sheets API."""
@@ -24,14 +18,18 @@ class GoogleSheetsClient:
             sheet_id: Google Sheet ID
         """
         self.credentials_file = credentials_file or os.getenv('GOOGLE_SERVICE_ACCOUNT_FILE')
+        
+        # Check env var first, then secrets
         self.sheet_id = sheet_id or os.getenv('GOOGLE_SHEET_ID')
+        if not self.sheet_id and "GOOGLE_SHEET_ID" in st.secrets:
+             self.sheet_id = st.secrets["GOOGLE_SHEET_ID"]
         
         # We will check for credentials availability in connect()
         # if not self.credentials_file:
         #     raise ValueError("Google service account file not specified. Set GOOGLE_SERVICE_ACCOUNT_FILE in .env")
         
         if not self.sheet_id:
-            raise ValueError("Google Sheet ID not specified. Set GOOGLE_SHEET_ID in .env")
+            raise ValueError("Google Sheet ID not specified. Set GOOGLE_SHEET_ID in .env or secrets.toml")
         
         self._client = None
         self._spreadsheet = None
