@@ -62,7 +62,8 @@ class KPICalculationEngine:
         return df
     
     def apply_filters(self, df: pd.DataFrame, kpi_def: pd.Series, 
-                     country: str = None, week: str = None) -> pd.DataFrame:
+                     country: str = None, week: str = None, 
+                     exclude_values: List[str] = None) -> pd.DataFrame:
         """
         Apply all filters defined in KPI definition.
         
@@ -71,6 +72,7 @@ class KPICalculationEngine:
             kpi_def: KPI definition row from catalogue
             country: Selected country (for dynamic filters)
             week: Selected week (for dynamic filters)
+            exclude_values: List of filter values to skip (e.g. ['cancelled'])
             
         Returns:
             Filtered DataFrame
@@ -90,6 +92,17 @@ class KPICalculationEngine:
             if filter_field not in filtered_df.columns:
                 print(f"⚠️  Warning: Filter field '{filter_field}' not found in data")
                 continue
+
+            # Check for exclusions
+            if exclude_values:
+                should_skip = False
+                str_val = str(filter_value).lower()
+                for excl in exclude_values:
+                    if excl.lower() in str_val:
+                        should_skip = True
+                        break
+                if should_skip:
+                    continue
             
             # Resolve dynamic values
             if filter_value_type == 'dynamic':
@@ -427,12 +440,30 @@ class KPICalculationEngine:
     def analyze_cancellations(self, kpi_id: str, country: str, week: str) -> pd.DataFrame:
         """
         Analyze cancelled interventions to find context (previous job, distance, time).
+        Uses wider dataset (skipping status filter) to find the actual previous performed job.
         """
-        # Get raw data (assuming MNT Stages RAW contains the necessary info)
-        # In a real scenario, we might need a specific table mapping
-        df = self.get_filtered_kpi_data(kpi_id, country, week)
+        # 1. Get KPI Definition
+        kpi_defs = self.catalogue[self.catalogue['kpi_id'] == kpi_id]
+        if kpi_defs.empty:
+            return pd.DataFrame()
+        kpi_def = kpi_defs.iloc[0]
+
+        # 2. Get Raw Data
+        raw_data = self.get_raw_data(kpi_def['source_table'])
+        if raw_data is None or raw_data.empty:
+            return pd.DataFrame()
+
+        # 3. Apply Filters EXCEPT strict status (to see Done + Cancelled)
+        # We skip filters that look like they select for 'cancelled' status
+        df = self.apply_filters(
+            raw_data, 
+            kpi_def, 
+            country, 
+            week, 
+            exclude_values=['cancelled', 'anulled', 'canceled']
+        )
         
-        if df is None or df.empty:
+        if df.empty:
             return pd.DataFrame()
 
         # Check required columns
@@ -459,42 +490,41 @@ class KPICalculationEngine:
         for technician, group in df.groupby(tech_col):
             group = group.sort_values('Intervention Start Date')
             
-            # Find cancelled jobs
-            # Assuming 'Cancelled' string in status, case insensitive
-            is_cancelled = group[status_col].astype(str).str.contains('anul', case=False, na=False) | \
-                           group[status_col].astype(str).str.contains('ancel', case=False, na=False)
+            last_done_job = None
             
-            cancelled_indices = group[is_cancelled].index
-            
-            for idx in cancelled_indices:
-                curr_job = group.loc[idx]
+            for idx, curr_job in group.iterrows():
+                status_str = str(curr_job[status_col]).lower()
+                is_cancelled = 'cancel' in status_str or 'anul' in status_str
                 
-                # Find previous job (strictly before this one)
-                # We look at the group up to this index
-                prev_jobs = group[group['Intervention Start Date'] < curr_job['Intervention Start Date']]
-                
-                if not prev_jobs.empty:
-                    prev_job = prev_jobs.iloc[-1] # The immediate previous one
-                    
-                    # Calculate metrics
-                    dist = self._haversine_distance(
-                        prev_job.get('Latitude'), prev_job.get('Longitude'),
-                        curr_job.get('Latitude'), curr_job.get('Longitude')
-                    )
-                    
-                    # Time gap: Start of Current - Done of Previous
-                    gap_minutes = None
-                    if pd.notna(curr_job['Intervention Start Date']) and pd.notna(prev_job['Intervention Done Date']):
-                        delta = curr_job['Intervention Start Date'] - prev_job['Intervention Done Date']
-                        gap_minutes = delta.total_seconds() / 60
-                    
-                    analysis_results.append({
-                        'Technician': technician,
-                        'Cancelled Job Start': curr_job['Intervention Start Date'],
-                        'Prev Job Done': prev_job['Intervention Done Date'],
-                        'Gap (min)': round(gap_minutes, 1) if gap_minutes is not None else None,
-                        'Distance (km)': round(dist, 1) if dist is not None else None,
-                        'Prev Job Status': prev_job[status_col]
-                    })
+                if is_cancelled:
+                    # Current job is cancelled - check against last DONE job
+                    if last_done_job is not None:
+                        # Calculate metrics
+                        dist = self._haversine_distance(
+                            last_done_job.get('Latitude'), last_done_job.get('Longitude'),
+                            curr_job.get('Latitude'), curr_job.get('Longitude')
+                        )
+                        
+                        # Time gap: Start of Current - Done of Previous
+                        gap_minutes = None
+                        start_time = curr_job['Intervention Start Date']
+                        done_time = last_done_job['Intervention Done Date']
+                        
+                        if pd.notna(start_time) and pd.notna(done_time):
+                            delta = start_time - done_time
+                            gap_minutes = delta.total_seconds() / 60
+                        
+                        analysis_results.append({
+                            'Technician': technician,
+                            'Cancelled Job Start': start_time,
+                            'Prev Job Done': done_time,
+                            'Gap (min)': round(gap_minutes, 1) if gap_minutes is not None else None,
+                            'Distance (km)': round(dist, 1) if dist is not None else None,
+                            'Prev Job Status': last_done_job[status_col]
+                        })
+                else:
+                    # This is a "Done" (or at least non-cancelled) job
+                    # Update it as the potential "previous job" for the next cancellation
+                    last_done_job = curr_job
 
         return pd.DataFrame(analysis_results)
