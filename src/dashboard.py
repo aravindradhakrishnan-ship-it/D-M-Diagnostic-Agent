@@ -111,7 +111,12 @@ st.markdown(f"""
         font-weight: 500;
         border: none;
         border-radius: 4px;
-        padding: 0.5rem 1.5rem;
+        padding: 0.25rem 0.25rem;
+        font-size: 0.85rem;
+        white-space: nowrap;
+        min-height: 2.0rem;
+        height: 2.0rem;
+        line-height: 1.5;
     }}
     
     div[data-testid="stButton"] button:hover {{
