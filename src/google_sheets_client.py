@@ -3,7 +3,7 @@ Google Sheets client for accessing KPI data.
 Handles authentication and data retrieval from Google Sheets.
 """
 import streamlit as st
-
+from typing import Optional, List, Dict
 # ... existing imports ...
 
 class GoogleSheetsClient:
