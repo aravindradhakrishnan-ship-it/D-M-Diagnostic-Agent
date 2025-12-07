@@ -58,8 +58,8 @@ class KPICalculationEngine:
 
         # Check required columns
         required_cols = ['Latitude', 'Longitude', 'Intervention Start Date', 'Intervention Done Date']
-        # flexible check for Technician Name
-        tech_col = next((c for c in df.columns if 'technician' in c.lower() and 'name' in c.lower()), None)
+        # Technician column: use only the explicit header we expect
+        tech_col = next((c for c in df.columns if c.strip().lower() == 'chosen team / technician'), None)
         status_col = next((c for c in df.columns if 'status' in c.lower()), None)
         
         st.write(f"🔍 DEBUG: Columns Found - Tech: {tech_col}, Status: {status_col}")
@@ -529,8 +529,8 @@ class KPICalculationEngine:
 
         # Check required columns
         required_cols = ['Latitude', 'Longitude', 'Intervention Start Date', 'Intervention Done Date']
-        # flexible check for Technician Name
-        tech_col = next((c for c in df.columns if 'technician' in c.lower() and 'name' in c.lower()), None)
+        # Technician column: use only the explicit header we expect
+        tech_col = next((c for c in df.columns if c.strip().lower() == 'chosen team / technician'), None)
         status_col = next((c for c in df.columns if 'status' in c.lower()), None)
         
         print(f"DEBUG: Analysis Columns Found - Tech: {tech_col}, Status: {status_col}")
