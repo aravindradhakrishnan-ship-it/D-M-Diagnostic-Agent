@@ -323,8 +323,8 @@ def show_cell_diagnostic(engine, kpi_id, kpi_name, country, week):
                     "Prev Job Done": st.column_config.DatetimeColumn(format="D MMM, HH:mm"),
                 }
             )
-            else:
-                st.write("No detailed cancellation context available (missing coordinates or technician data).")
+        else:
+            st.write("No detailed cancellation context available (missing coordinates or technician data).")
         st.markdown("---")
 
     # Root cause analysis
