@@ -45,11 +45,21 @@ class GoogleSheetsClient:
             ]
             
             # Authenticate using service account
-            credentials = Credentials.from_service_account_file(
-                self.credentials_file,
-                scopes=scopes
-            )
-            
+            if self.credentials_file and os.path.exists(self.credentials_file):
+                 credentials = Credentials.from_service_account_file(
+                    self.credentials_file,
+                    scopes=scopes
+                )
+            elif "gcp_service_account" in st.secrets:
+                # Use secrets from Streamlit Cloud
+                service_account_info = st.secrets["gcp_service_account"]
+                credentials = Credentials.from_service_account_info(
+                    service_account_info,
+                    scopes=scopes
+                )
+            else:
+                 raise FileNotFoundError(f"Credentials file not found at {self.credentials_file} and 'gcp_service_account' not in secrets.")
+
             # Create client
             self._client = gspread.authorize(credentials)
             
@@ -61,7 +71,7 @@ class GoogleSheetsClient:
             
         except FileNotFoundError:
             print(f"❌ Error: Credentials file not found at {self.credentials_file}")
-            print("Please check the path in your .env file.")
+            print("Please check the path in your .env file or add [gcp_service_account] to .streamlit/secrets.toml")
             return False
         except Exception as e:
             print(f"❌ Error connecting to Google Sheets: {str(e)}")
