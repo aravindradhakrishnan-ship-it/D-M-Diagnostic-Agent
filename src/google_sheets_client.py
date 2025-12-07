@@ -4,7 +4,13 @@ Handles authentication and data retrieval from Google Sheets.
 """
 import streamlit as st
 from typing import Optional, List, Dict
-# ... existing imports ...
+import gspread
+from google.oauth2.service_account import Credentials
+import pandas as pd
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class GoogleSheetsClient:
     """Client for interacting with Google Sheets API."""
