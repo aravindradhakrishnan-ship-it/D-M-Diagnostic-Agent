@@ -547,50 +547,63 @@ class KPICalculationEngine:
              print(f"DEBUG: Unique Statuses: {df[status_col].unique()}")
             
         # Ensure date columns are datetime
-        for col in ['Intervention Start Date', 'Intervention Done Date', planned_col if 'planned_col' in locals() else None]:
+        for col in ['Intervention Start Date', 'Intervention Done Date', planned_col if planned_col else None]:
             if col and col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce')
 
-        # Sort by Technician and planned/start date to find "first cancelled" in planned order
+        # Use planned date/time if available to determine order
         time_order_col = planned_col if planned_col else 'Intervention Start Date'
         df = df.sort_values(by=[tech_col, time_order_col])
         
+        # Precompute cancel mask for the whole frame
+        cancel_mask = df[status_col].astype(str).str.lower().str.contains('cancel') | df[status_col].astype(str).str.lower().str.contains('anul')
+        df['Intervention Date'] = df[time_order_col].dt.date
+        
         analysis_results = []
         
-        # Group by technician and intervention date (day) to aggregate
-        df['Intervention Date'] = df[time_order_col].dt.date
-        for (technician, day), group in df.groupby([tech_col, 'Intervention Date']):
-            # identify cancelled rows for the day using status
-            cancelled_mask = group[status_col].astype(str).str.lower().str.contains('cancel') | group[status_col].astype(str).str.lower().str.contains('anul')
-            cancelled_jobs = group[cancelled_mask].sort_values(by=time_order_col)
-            non_cancelled = group[~cancelled_mask].sort_values(by='Intervention Done Date')
+        # Group by technician
+        for technician, tech_group in df.groupby(tech_col):
+            tech_group = tech_group.sort_values(by=time_order_col)
+            tech_cancel_mask = cancel_mask.loc[tech_group.index]
             
-            if cancelled_jobs.empty:
-                continue
-            
-            first_cancel = cancelled_jobs.iloc[0]
-            last_done = non_cancelled.iloc[-1] if not non_cancelled.empty else None
-            
-            dist = None
-            prev_done_date = None
-            prev_done_time = None
-            if last_done is not None:
-                dist = self._haversine_distance(
-                    last_done.get('Latitude'), last_done.get('Longitude'),
-                    first_cancel.get('Latitude'), first_cancel.get('Longitude')
-                )
-                done_dt = last_done.get('Intervention Done Date')
-                if pd.notna(done_dt):
-                    prev_done_date = done_dt.date()
-                    prev_done_time = done_dt.time()
-            
-            analysis_results.append({
-                'Technician': technician,
-                'Intervention date': first_cancel[time_order_col].date() if pd.notna(first_cancel[time_order_col]) else None,
-                'Number of cancelled jobs': len(cancelled_jobs),
-                'Prev Job Done Date': prev_done_date,
-                'Prev Job Done Time': prev_done_time,
-                'Distance (km)': round(dist, 1) if dist is not None else None
-            })
+            # For each day with cancellations, find first cancelled and last non-cancelled BEFORE that cancelled
+            cancel_days = tech_group.loc[tech_cancel_mask, 'Intervention Date'].dropna().unique()
+            for day in cancel_days:
+                day_rows = tech_group[tech_group['Intervention Date'] == day]
+                day_cancel_mask = tech_cancel_mask.loc[day_rows.index]
+                day_cancelled = day_rows[day_cancel_mask].sort_values(by=time_order_col)
+                if day_cancelled.empty:
+                    continue
+                
+                first_cancel_idx = day_cancelled.index[0]
+                first_cancel = df.loc[first_cancel_idx]
+                
+                # Rows before the first cancel (any date) to find last performed job
+                prior_rows = tech_group.loc[tech_group.index < first_cancel_idx]
+                prior_done = prior_rows[~tech_cancel_mask.loc[prior_rows.index]]
+                prior_done = prior_done.dropna(subset=['Intervention Done Date'])
+                last_done = prior_done.iloc[-1] if not prior_done.empty else None
+                
+                dist = None
+                prev_done_date = None
+                prev_done_time = None
+                if last_done is not None:
+                    dist = self._haversine_distance(
+                        last_done.get('Latitude'), last_done.get('Longitude'),
+                        first_cancel.get('Latitude'), first_cancel.get('Longitude')
+                    )
+                    done_dt = last_done.get('Intervention Done Date')
+                    if pd.notna(done_dt):
+                        prev_done_date = done_dt.date()
+                        prev_done_time = done_dt.time()
+                
+                analysis_results.append({
+                    'Technician': technician,
+                    'Intervention date': first_cancel[time_order_col].date() if pd.notna(first_cancel[time_order_col]) else None,
+                    'Number of cancelled jobs': day_cancelled.shape[0],
+                    'Prev Job Done Date': prev_done_date,
+                    'Prev Job Done Time': prev_done_time,
+                    'Distance (km)': round(dist, 1) if dist is not None else None
+                })
 
         return pd.DataFrame(analysis_results)
