@@ -403,3 +403,98 @@ class KPICalculationEngine:
             return sorted(weeks)
         
         return []
+    def _haversine_distance(self, lat1, lon1, lat2, lon2):
+        """
+        Calculate the great circle distance between two points 
+        on the earth (specified in decimal degrees).
+        """
+        try:
+            lat1, lon1, lat2, lon2 = map(float, [lat1, lon1, lat2, lon2])
+        except (ValueError, TypeError):
+            return None
+
+        # Convert decimal degrees to radians 
+        lon1, lat1, lon2, lat2 = map(np.radians, [lon1, lat1, lon2, lat2])
+
+        # Haversine formula 
+        dlon = lon2 - lon1 
+        dlat = lat2 - lat1 
+        a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
+        c = 2 * np.arcsin(np.sqrt(a)) 
+        r = 6371 # Radius of earth in kilometers.
+        return c * r
+
+    def analyze_cancellations(self, kpi_id: str, country: str, week: str) -> pd.DataFrame:
+        """
+        Analyze cancelled interventions to find context (previous job, distance, time).
+        """
+        # Get raw data (assuming MNT Stages RAW contains the necessary info)
+        # In a real scenario, we might need a specific table mapping
+        df = self.get_filtered_kpi_data(kpi_id, country, week)
+        
+        if df is None or df.empty:
+            return pd.DataFrame()
+
+        # Check required columns
+        required_cols = ['Latitude', 'Longitude', 'Intervention Start Date', 'Intervention Done Date']
+        # flexible check for Technician Name
+        tech_col = next((c for c in df.columns if 'technician' in c.lower() and 'name' in c.lower()), None)
+        status_col = next((c for c in df.columns if 'status' in c.lower()), None)
+
+        if not tech_col or not status_col:
+            print(f"⚠️ Missing columns for analysis. Tech: {tech_col}, Status: {status_col}")
+            return pd.DataFrame()
+            
+        # Ensure date columns are datetime
+        for col in ['Intervention Start Date', 'Intervention Done Date']:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+
+        # Sort by Technician and Start Date
+        df = df.sort_values(by=[tech_col, 'Intervention Start Date'])
+        
+        analysis_results = []
+        
+        # Group by technician to analyze sequence
+        for technician, group in df.groupby(tech_col):
+            group = group.sort_values('Intervention Start Date')
+            
+            # Find cancelled jobs
+            # Assuming 'Cancelled' string in status, case insensitive
+            is_cancelled = group[status_col].astype(str).str.contains('anul', case=False, na=False) | \
+                           group[status_col].astype(str).str.contains('ancel', case=False, na=False)
+            
+            cancelled_indices = group[is_cancelled].index
+            
+            for idx in cancelled_indices:
+                curr_job = group.loc[idx]
+                
+                # Find previous job (strictly before this one)
+                # We look at the group up to this index
+                prev_jobs = group[group['Intervention Start Date'] < curr_job['Intervention Start Date']]
+                
+                if not prev_jobs.empty:
+                    prev_job = prev_jobs.iloc[-1] # The immediate previous one
+                    
+                    # Calculate metrics
+                    dist = self._haversine_distance(
+                        prev_job.get('Latitude'), prev_job.get('Longitude'),
+                        curr_job.get('Latitude'), curr_job.get('Longitude')
+                    )
+                    
+                    # Time gap: Start of Current - Done of Previous
+                    gap_minutes = None
+                    if pd.notna(curr_job['Intervention Start Date']) and pd.notna(prev_job['Intervention Done Date']):
+                        delta = curr_job['Intervention Start Date'] - prev_job['Intervention Done Date']
+                        gap_minutes = delta.total_seconds() / 60
+                    
+                    analysis_results.append({
+                        'Technician': technician,
+                        'Cancelled Job Start': curr_job['Intervention Start Date'],
+                        'Prev Job Done': prev_job['Intervention Done Date'],
+                        'Gap (min)': round(gap_minutes, 1) if gap_minutes is not None else None,
+                        'Distance (km)': round(dist, 1) if dist is not None else None,
+                        'Prev Job Status': prev_job[status_col]
+                    })
+
+        return pd.DataFrame(analysis_results)
