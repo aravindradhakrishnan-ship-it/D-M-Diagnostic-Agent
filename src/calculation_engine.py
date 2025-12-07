@@ -10,11 +10,60 @@ import re
 from country_mapping import get_country_data_value
 
 
+import streamlit as st
+
 class KPICalculationEngine:
-    """
-    Engine that calculates KPIs based on catalogue definitions.
-    Applies filters, aggregations, and tracks driver contributions.
-    """
+    # ... (existing code)
+
+    def analyze_cancellations(self, kpi_id: str, country: str, week: str) -> pd.DataFrame:
+        """
+        Analyze cancelled interventions to find context (previous job, distance, time).
+        Uses wider dataset (skipping status filter) to find the actual previous performed job.
+        """
+        st.write(f"🔍 DEBUG: Analyzing KPI: {kpi_id}, Country: {country}, Week: {week}")
+
+        # 1. Get KPI Definition
+        kpi_defs = self.catalogue[self.catalogue['kpi_id'] == kpi_id]
+        if kpi_defs.empty:
+            st.error(f"❌ DEBUG: KPI Definition not found for ID: {kpi_id}")
+            return pd.DataFrame()
+        kpi_def = kpi_defs.iloc[0]
+
+        # 2. Get Raw Data
+        source_table = kpi_def['source_table']
+        st.write(f"🔍 DEBUG: Loading raw data from table: {source_table}")
+        
+        raw_data = self.get_raw_data(source_table)
+        if raw_data is None or raw_data.empty:
+            st.error(f"❌ DEBUG: Raw data is None or Empty for table: {source_table}")
+            return pd.DataFrame()
+        
+        st.write(f"✅ DEBUG: Raw Data Loaded. Shape: {raw_data.shape}")
+
+        # 3. Apply Filters EXCEPT strict status (to see Done + Cancelled)
+        # We skip filters that look like they select for 'cancelled' status
+        df = self.apply_filters(
+            raw_data, 
+            kpi_def, 
+            country, 
+            week, 
+            exclude_values=['cancelled', 'anulled', 'canceled']
+        )
+        
+        st.write(f"✅ DEBUG: Data Shape after filtering: {df.shape}")
+        
+        if df.empty:
+            st.warning("⚠️ DEBUG: Filtered DataFrame is empty!")
+            return pd.DataFrame()
+
+        # Check required columns
+        required_cols = ['Latitude', 'Longitude', 'Intervention Start Date', 'Intervention Done Date']
+        # flexible check for Technician Name
+        tech_col = next((c for c in df.columns if 'technician' in c.lower() and 'name' in c.lower()), None)
+        status_col = next((c for c in df.columns if 'status' in c.lower()), None)
+        
+        st.write(f"🔍 DEBUG: Columns Found - Tech: {tech_col}, Status: {status_col}")
+        # st.write(f"DEBUG: All Columns: {df.columns.tolist()}") # verbose
     
     def __init__(self, google_sheets_client):
         """
