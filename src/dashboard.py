@@ -302,6 +302,30 @@ def show_cell_diagnostic(engine, kpi_id, kpi_name, country, week):
                 f"{result['denominator']['value']:,.0f}"
             )
     
+    # Cancelled Intervention Analysis (New Feature)
+    if 'cancel' in kpi_name.lower() or 'anul' in kpi_name.lower():
+        st.markdown("#### 🚫 Cancellation Context")
+        st.info("Analyzing Technician Capacity: Distance and time gap from previous job.")
+        
+        with st.spinner("Analyzing trip data..."):
+            cancellation_df = engine.analyze_cancellations(kpi_id, country, week)
+            
+            if not cancellation_df.empty:
+                st.dataframe(
+                    cancellation_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Gap (min)": st.column_config.NumberColumn(format="%.0f min"),
+                        "Distance (km)": st.column_config.NumberColumn(format="%.1f km"),
+                        "Cancelled Job Start": st.column_config.DatetimeColumn(format="D MMM, HH:mm"),
+                        "Prev Job Done": st.column_config.DatetimeColumn(format="D MMM, HH:mm"),
+                    }
+                )
+            else:
+                st.write("No detailed cancellation context available (missing coordinates or technician data).")
+        st.markdown("---")
+
     # Root cause analysis
     st.markdown("#### 🎯 Root Cause Analysis")
     breakdown = engine.get_root_cause_breakdown(kpi_id, country, week)
