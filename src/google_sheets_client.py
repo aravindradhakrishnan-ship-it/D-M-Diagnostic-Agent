@@ -190,9 +190,15 @@ class GoogleSheetsClient:
         permissions = {}
         
         if df is None:
-            print(f"⚠️  Permissions sheet '{sheet_name}' not found or empty.")
+            # Debug: List available sheets
+            all_sheets = [ws.title for ws in self._spreadsheet.worksheets()]
+            print(f"DEBUG: Permissions sheet '{sheet_name}' returned None. Available sheets: {all_sheets}")
             return permissions
             
+        print(f"DEBUG: Permissions sheet '{sheet_name}' read successfully. Shape: {df.shape}")
+        if df.empty:
+             print("DEBUG: DataFrame is empty!")
+             
         # unexpected columns? try to find Email and Allowed Countries
         # Normalize columns: lower case and strip
         df.columns = [str(c).strip() for c in df.columns]
