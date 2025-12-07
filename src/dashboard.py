@@ -312,17 +312,17 @@ def show_cell_diagnostic(engine, kpi_id, kpi_name, country, week):
         cancellation_df = engine.analyze_cancellations(kpi_id, country, week)
         
         if not cancellation_df.empty:
-                st.dataframe(
-                    cancellation_df,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Gap (min)": st.column_config.NumberColumn(format="%.0f min"),
-                        "Distance (km)": st.column_config.NumberColumn(format="%.1f km"),
-                        "Cancelled Job Start": st.column_config.DatetimeColumn(format="D MMM, HH:mm"),
-                        "Prev Job Done": st.column_config.DatetimeColumn(format="D MMM, HH:mm"),
-                    }
-                )
+            st.dataframe(
+                cancellation_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Gap (min)": st.column_config.NumberColumn(format="%.0f min"),
+                    "Distance (km)": st.column_config.NumberColumn(format="%.1f km"),
+                    "Cancelled Job Start": st.column_config.DatetimeColumn(format="D MMM, HH:mm"),
+                    "Prev Job Done": st.column_config.DatetimeColumn(format="D MMM, HH:mm"),
+                }
+            )
             else:
                 st.write("No detailed cancellation context available (missing coordinates or technician data).")
         st.markdown("---")
