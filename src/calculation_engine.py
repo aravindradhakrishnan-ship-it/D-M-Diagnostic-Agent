@@ -43,11 +43,11 @@ class KPICalculationEngine:
         # 3. Apply Filters EXCEPT strict status (to see Done + Cancelled)
         # We skip filters that look like they select for 'cancelled' status
         df = self.apply_filters(
-            raw_data, 
-            kpi_def, 
-            country, 
+            raw_data,
+            kpi_def,
+            country,
             week,
-            client, 
+            client,
             exclude_values=['cancelled', 'anulled', 'canceled']
         )
         

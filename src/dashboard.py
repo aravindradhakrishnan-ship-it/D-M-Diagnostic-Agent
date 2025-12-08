@@ -147,12 +147,19 @@ def get_available_weeks(engine):
     
     return [f"2025_W{i}" for i in range(36, 49)]
 
-def get_available_clients(engine, source_table: str = 'MNT Stages RAW'):
-    """Get list of clients from raw data."""
-    df = engine.get_raw_data(source_table)
-    if df is None or 'Client' not in df.columns:
-        return []
-    clients = [c for c in df['Client'].dropna().unique().tolist() if str(c).strip() != '']
+def get_available_clients(engine):
+    """Get list of clients from any source table that has a Client column."""
+    clients = set()
+    # Try all source tables from the catalogue to maximize coverage
+    for _, kpi_def in engine.catalogue.iterrows():
+        source_table = kpi_def.get('source_table')
+        if not source_table:
+            continue
+        df = engine.get_raw_data(source_table)
+        if df is None or 'Client' not in df.columns:
+            continue
+        vals = [c for c in df['Client'].dropna().unique().tolist() if str(c).strip() != '']
+        clients.update(vals)
     return sorted(clients)
 
 def calculate_change_pct(current, previous):
