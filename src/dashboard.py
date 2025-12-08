@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 import sys
 import os
+import google.generativeai as genai
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -16,6 +17,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from google_sheets_client import GoogleSheetsClient
 from calculation_engine import KPICalculationEngine
 from country_mapping import COUNTRY_MAPPING
+from ai_retriever import build_retriever
+from ai_tools import get_kpi_data
 
 # Page config
 st.set_page_config(
@@ -35,6 +38,7 @@ TEXT_SECONDARY = "#666666"
 POSITIVE_GREEN = "#10b981"
 NEGATIVE_RED = "#ef4444"
 BLOQ_ORANGE = "#FF5733"
+GEMINI_MODEL = "gemini-1.5-flash"
 
 # Custom CSS - CLEAN LIGHT THEME
 st.markdown(f"""
@@ -129,6 +133,71 @@ st.markdown(f"""
 # Initialize session state
 if 'selected_cell' not in st.session_state:
     st.session_state.selected_cell = None
+if 'ai_history' not in st.session_state:
+    st.session_state.ai_history = []
+
+def get_gemini_model():
+    """Configure and return a Gemini model instance, or None if no key."""
+    api_key = st.secrets.get("GEMINI_API_KEY") if "GEMINI_API_KEY" in st.secrets else os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return None
+    try:
+        genai.configure(api_key=api_key)
+        return genai.GenerativeModel(GEMINI_MODEL)
+    except Exception as e:
+        st.warning(f"Gemini configuration failed: {e}")
+        return None
+
+
+def render_ai_chat(retriever, selected_country, selected_weeks, selected_client):
+    """Render the Gemini chat panel."""
+    st.markdown("---")
+    st.markdown("### 🤖 Ask the KPIs (Gemini)")
+    model = get_gemini_model()
+    if not model:
+        st.info("Add GEMINI_API_KEY to Streamlit secrets or environment to enable the AI chat.")
+        return
+
+    # Show chat history
+    for msg in st.session_state.ai_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    user_prompt = st.chat_input("Ask about KPIs, trends, or filters...")
+    if user_prompt:
+        # Append user message
+        st.session_state.ai_history.append({"role": "user", "content": user_prompt})
+        with st.chat_message("user"):
+            st.markdown(user_prompt)
+
+        # Retrieve context from catalogue
+        context_hits = retriever.search(user_prompt, top_k=3) if retriever else []
+        context_text = "\n".join([f"{i+1}. {hit[1]}" for i, hit in enumerate(context_hits)]) if context_hits else "No catalogue context found."
+
+        filters_text = f"Country={selected_country}; Weeks={', '.join(selected_weeks)}; Client={selected_client or 'All'}"
+
+        system_prompt = (
+            "You are a concise KPI assistant. Answer only using the provided context and filters. "
+            "If you don't have enough info, say so. Do not make up numbers."
+        )
+        user_block = (
+            f"User question: {user_prompt}\n\n"
+            f"Filters: {filters_text}\n\n"
+            f"Catalogue context:\n{context_text}"
+        )
+
+        try:
+            resp = model.generate_content(
+                [{"role": "user", "parts": [system_prompt + "\n\n" + user_block]}],
+                generation_config={"temperature": 0.2}
+            )
+            answer = resp.text if hasattr(resp, "text") else str(resp)
+        except Exception as e:
+            answer = f"Gemini error: {e}"
+
+        st.session_state.ai_history.append({"role": "assistant", "content": answer})
+        with st.chat_message("assistant"):
+            st.markdown(answer)
 
 @st.cache_resource
 def initialize_engine():
@@ -462,6 +531,7 @@ def main():
     with st.spinner("Connecting to Google Sheets..."):
         try:
             engine = initialize_engine()
+            retriever = build_retriever(engine.catalogue)
         except Exception as e:
             st.error(f"Failed to connect: {str(e)}")
             st.stop()
@@ -589,7 +659,10 @@ def main():
                 st.markdown('<div style="height: 0; border-bottom: 1px solid #e0e0e0; margin: 0;"></div>', unsafe_allow_html=True)
         else:
             st.warning("No KPIs to display")
-    
+
+        # AI chat on overview
+        render_ai_chat(retriever, selected_country, selected_weeks, selected_client)
+
     else:
         # Show diagnostic view
         show_cell_diagnostic(
@@ -600,6 +673,8 @@ def main():
             st.session_state.selected_cell['week'],
             selected_client
         )
+        # AI chat inside diagnostic view as well
+        render_ai_chat(retriever, selected_country, selected_weeks, selected_client)
 
 if __name__ == "__main__":
     main()
