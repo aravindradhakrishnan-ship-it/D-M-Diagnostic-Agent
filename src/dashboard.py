@@ -9,7 +9,10 @@ import plotly.graph_objects as go
 from datetime import datetime
 import sys
 import os
-import google.generativeai as genai
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -138,6 +141,9 @@ if 'ai_history' not in st.session_state:
 
 def get_gemini_model():
     """Configure and return a Gemini model instance, or None if no key."""
+    if genai is None:
+        st.info("Gemini SDK is not installed in this environment.")
+        return None
     api_key = st.secrets.get("GEMINI_API_KEY") if "GEMINI_API_KEY" in st.secrets else os.getenv("GEMINI_API_KEY")
     if not api_key:
         return None
