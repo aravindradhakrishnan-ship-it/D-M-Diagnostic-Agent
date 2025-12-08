@@ -190,7 +190,7 @@ def render_ai_chat(retriever, engine, selected_country, selected_weeks, selected
         # Retrieve context from catalogue
         context_hits = retriever.search(user_prompt, top_k=3) if retriever else []
         context_text = "\n".join([f"{i+1}. {hit[1]}" for i, hit in enumerate(context_hits)]) if context_hits else "No catalogue context found."
-        kpi_summary = build_kpi_summary(engine, selected_weeks, selected_country, selected_client)
+        kpi_summary = build_kpi_summary(engine, selected_weeks, selected_country, selected_client, focus_query=user_prompt)
 
         filters_text = f"Country={selected_country}; Weeks={', '.join(selected_weeks)}; Client={selected_client or 'All'}"
 
@@ -313,18 +313,29 @@ def format_change_html(change):
     color_class = "change-positive" if change > 0 else "change-negative"
     return f'<span class="{color_class}">{sign}{change:.0f}%</span>'
 
-def build_kpi_summary(engine, weeks, country, client=None, max_kpis=5):
+def build_kpi_summary(engine, weeks, country, client=None, max_kpis=5, focus_query: str = None):
     """
     Build a small textual summary of KPI values for the selected weeks.
+    If focus_query is provided, prioritize KPIs whose name matches the query.
     Limits to first max_kpis KPIs to keep prompt compact.
     """
     summaries = []
-    kpi_defs = engine.catalogue.head(max_kpis)
+
+    def match_score(name: str) -> int:
+        if not focus_query:
+            return 0
+        q = focus_query.lower()
+        return 1 if q in name.lower() else 0
+
+    kpi_defs = engine.catalogue.copy()
+    kpi_defs["match_score"] = kpi_defs["kpi_name"].apply(match_score)
+    kpi_defs = kpi_defs.sort_values(by="match_score", ascending=False).head(max_kpis)
+
     for _, kpi_def in kpi_defs.iterrows():
         kpi_id = kpi_def['kpi_id']
         kpi_name = kpi_def['kpi_name']
         values = []
-        for w in weeks:
+        for w in weeks[-4:]:
             res = engine.calculate_kpi(kpi_id, country, w, client)
             if 'error' in res:
                 continue
