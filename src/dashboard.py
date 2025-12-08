@@ -192,6 +192,7 @@ def render_ai_chat(retriever, engine, selected_country, selected_weeks, selected
         context_text = "\n".join([f"{i+1}. {hit[1]}" for i, hit in enumerate(context_hits)]) if context_hits else "No catalogue context found."
         kpi_summary = build_kpi_summary(engine, selected_weeks, selected_country, selected_client, focus_query=user_prompt)
         kpi_groups = build_kpi_group_summaries(engine, selected_weeks, selected_country, selected_client, user_prompt)
+        kpi_aggregates = build_targeted_aggregate(engine, selected_weeks, selected_country, selected_client, user_prompt)
 
         filters_text = f"Country={selected_country}; Weeks={', '.join(selected_weeks)}; Client={selected_client or 'All'}"
 
@@ -204,7 +205,8 @@ def render_ai_chat(retriever, engine, selected_country, selected_weeks, selected
             f"Filters: {filters_text}\n\n"
             f"Catalogue context:\n{context_text}\n\n"
             f"KPI summaries:\n{kpi_summary}\n\n"
-            f"KPI grouped breakdowns:\n{kpi_groups}"
+            f"KPI grouped breakdowns:\n{kpi_groups}\n\n"
+            f"Detailed aggregates:\n{kpi_aggregates}"
         )
 
         try:
@@ -427,6 +429,77 @@ def build_kpi_group_summaries(engine, weeks, country, client, user_prompt, max_d
         summaries.append(f"{dim}: " + " | ".join(parts))
 
     return "\n".join(summaries)
+
+
+def build_targeted_aggregate(engine, weeks, country, client, user_prompt):
+    """
+    Build more detailed aggregates for the KPI that matches the question:
+    - Last two weeks only
+    - Group by a set of key dimensions and show top drops/gains
+    """
+    if engine.catalogue is None or engine.catalogue.empty or not weeks:
+        return "No aggregates available."
+
+    def score(row):
+        q = user_prompt.lower()
+        return 1 if q in str(row.get("kpi_name", "")).lower() else 0
+
+    catalogue = engine.catalogue.copy()
+    catalogue["match_score"] = catalogue.apply(score, axis=1)
+    best = catalogue.sort_values(by="match_score", ascending=False).head(1)
+    if best.empty or best.iloc[0]["match_score"] == 0:
+        return "No specific KPI match found for this question."
+
+    kpi_row = best.iloc[0]
+    kpi_id = kpi_row["kpi_id"]
+    kpi_name = kpi_row["kpi_name"]
+
+    last_weeks = weeks[-2:] if len(weeks) >= 2 else weeks
+    frames = []
+    for w in last_weeks:
+        df = engine.get_filtered_kpi_data(kpi_id, country, w, client)
+        if df is None or df.empty:
+            continue
+        df = df.copy()
+        df["__week__"] = w.split("_")[-1]
+        frames.append(df)
+    if not frames:
+        return f"No data available for KPI '{kpi_name}' in selected weeks."
+
+    data = pd.concat(frames, ignore_index=True)
+
+    dims = []
+    candidate_keys = ["project", "technician", "client", "status", "region", "team"]
+    for col in data.columns:
+        lc = col.lower()
+        if any(key in lc for key in candidate_keys):
+            dims.append(col)
+    dims = list(dict.fromkeys(dims))[:4]
+    if not dims:
+        return f"KPI: {kpi_name} | No groupable dimensions found."
+
+    lines = [f"KPI: {kpi_name} (detailed aggregates)"]
+    for dim in dims:
+        if len(last_weeks) == 2:
+            w_prev, w_curr = [w.split("_")[-1] for w in last_weeks]
+            prev_df = data[data["__week__"] == w_prev]
+            curr_df = data[data["__week__"] == w_curr]
+            prev_counts = prev_df[dim].fillna("Unknown").value_counts()
+            curr_counts = curr_df[dim].fillna("Unknown").value_counts()
+            deltas = (curr_counts - prev_counts).sort_values()
+            top_drops = deltas.head(3)
+            top_gains = deltas.tail(3)
+            drop_txt = ", ".join([f"{k} {v:+}" for k, v in top_drops.items()]) if not top_drops.empty else "no drops"
+            gain_txt = ", ".join([f"{k} {v:+}" for k, v in top_gains.items()]) if not top_gains.empty else "no gains"
+            lines.append(f"{dim}: {w_prev}->{w_curr} drops: {drop_txt} | gains: {gain_txt}")
+        else:
+            # single week: show top categories
+            wk = data["__week__"].iloc[0]
+            top = data[dim].fillna("Unknown").value_counts().head(5)
+            top_txt = ", ".join([f"{k} {v}" for k, v in top.items()])
+            lines.append(f"{dim}: {wk} top: {top_txt}")
+
+    return "\n".join(lines)
 
 def show_cell_diagnostic(engine, kpi_id, kpi_name, country, week, client=None):
     """Show diagnostic for specific KPI + Week."""
