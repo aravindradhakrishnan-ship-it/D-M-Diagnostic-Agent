@@ -42,11 +42,14 @@ POSITIVE_GREEN = "#10b981"
 NEGATIVE_RED = "#ef4444"
 BLOQ_ORANGE = "#FF5733"
 DEFAULT_GEMINI_MODELS = [
-    "models/gemini-1.5-flash-latest",
-    "models/gemini-1.5-flash-001",
-    "models/gemini-1.5-flash-8b",
-    "models/gemini-1.5-flash",
-    "gemini-1.5-flash",
+    # Newer 2.5/2.0 models (adjust based on your account availability)
+    "models/gemini-2.5-flash",
+    "models/gemini-2.5-pro",
+    "models/gemini-2.0-flash",
+    "models/gemini-2.0-flash-001",
+    # Legacy fallbacks
+    "models/gemini-flash-latest",
+    "models/gemini-pro-latest",
 ]
 
 # Custom CSS - CLEAN LIGHT THEME
