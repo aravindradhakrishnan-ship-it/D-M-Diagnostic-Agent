@@ -42,7 +42,8 @@ POSITIVE_GREEN = "#10b981"
 NEGATIVE_RED = "#ef4444"
 BLOQ_ORANGE = "#FF5733"
 DEFAULT_GEMINI_MODELS = [
-    "models/gemini-2.5-flash",  # primary
+    "models/gemini-2.5-flash-lite",  # primary
+    "models/gemini-2.5-flash",
     "models/gemini-2.0-flash",
     "models/gemini-2.0-flash-001",
     "models/gemini-flash-latest",
