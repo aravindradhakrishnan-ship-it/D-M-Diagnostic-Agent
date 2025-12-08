@@ -191,6 +191,7 @@ def render_ai_chat(retriever, engine, selected_country, selected_weeks, selected
         context_hits = retriever.search(user_prompt, top_k=3) if retriever else []
         context_text = "\n".join([f"{i+1}. {hit[1]}" for i, hit in enumerate(context_hits)]) if context_hits else "No catalogue context found."
         kpi_summary = build_kpi_summary(engine, selected_weeks, selected_country, selected_client, focus_query=user_prompt)
+        kpi_groups = build_kpi_group_summaries(engine, selected_weeks, selected_country, selected_client, user_prompt)
 
         filters_text = f"Country={selected_country}; Weeks={', '.join(selected_weeks)}; Client={selected_client or 'All'}"
 
@@ -202,7 +203,8 @@ def render_ai_chat(retriever, engine, selected_country, selected_weeks, selected
             f"User question: {user_prompt}\n\n"
             f"Filters: {filters_text}\n\n"
             f"Catalogue context:\n{context_text}\n\n"
-            f"KPI summaries:\n{kpi_summary}"
+            f"KPI summaries:\n{kpi_summary}\n\n"
+            f"KPI grouped breakdowns:\n{kpi_groups}"
         )
 
         try:
@@ -346,6 +348,73 @@ def build_kpi_summary(engine, weeks, country, client=None, max_kpis=5, focus_que
         if values:
             summaries.append(f"{kpi_name} -> " + "; ".join(values))
     return "\n".join(summaries) if summaries else "No KPI summary available."
+
+
+def build_kpi_group_summaries(engine, weeks, country, client, user_prompt, max_dims=3):
+    """
+    Build lightweight grouped summaries (last 2 weeks) for the KPI that best matches the user prompt.
+    Helps the model explain drops by showing where volume changed.
+    """
+    if engine.catalogue is None or engine.catalogue.empty or not weeks:
+        return "No grouped summaries available."
+
+    # Find best matching KPI by name
+    def score(row):
+        q = user_prompt.lower()
+        return 1 if q in str(row.get("kpi_name", "")).lower() else 0
+
+    catalogue = engine.catalogue.copy()
+    catalogue["match_score"] = catalogue.apply(score, axis=1)
+    best = catalogue.sort_values(by="match_score", ascending=False).head(1)
+    if best.empty or best.iloc[0]["match_score"] == 0:
+        return "No specific KPI match found for this question."
+
+    kpi_row = best.iloc[0]
+    kpi_id = kpi_row["kpi_id"]
+    kpi_name = kpi_row["kpi_name"]
+
+    # Use last two weeks to compare
+    last_weeks = weeks[-2:] if len(weeks) >= 2 else weeks
+    frames = []
+    for w in last_weeks:
+        df = engine.get_filtered_kpi_data(kpi_id, country, w, client)
+        if df is None or df.empty:
+            continue
+        df = df.copy()
+        df["__week__"] = w.split("_")[-1]
+        frames.append(df)
+    if not frames:
+        return f"No data available for KPI '{kpi_name}' in selected weeks."
+
+    data = pd.concat(frames, ignore_index=True)
+
+    # Candidate dimension columns
+    candidates = []
+    for col in data.columns:
+        lc = col.lower()
+        if any(key in lc for key in ["project", "technician", "client", "status", "region"]):
+            candidates.append(col)
+    # Deduplicate while preserving order
+    seen = set()
+    dims = []
+    for c in candidates:
+        if c not in seen:
+            dims.append(c)
+            seen.add(c)
+    dims = dims[:max_dims]
+
+    summaries = [f"KPI: {kpi_name} (last {len(last_weeks)} weeks)"]
+    for dim in dims:
+        parts = []
+        for w in last_weeks:
+            wk = w.split("_")[-1]
+            wk_df = data[data["__week__"] == wk]
+            top = wk_df[dim].fillna("Unknown").value_counts().head(3)
+            top_txt = ", ".join([f"{k} {v}" for k, v in top.items()])
+            parts.append(f"{wk}: total {len(wk_df)} (top: {top_txt})")
+        summaries.append(f"{dim}: " + " | ".join(parts))
+
+    return "\n".join(summaries)
 
 def show_cell_diagnostic(engine, kpi_id, kpi_name, country, week, client=None):
     """Show diagnostic for specific KPI + Week."""
