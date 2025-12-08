@@ -353,7 +353,7 @@ def build_kpi_summary(engine, weeks, country, client=None, max_kpis=5, focus_que
 def build_kpi_group_summaries(engine, weeks, country, client, user_prompt, max_dims=3):
     """
     Build lightweight grouped summaries (last 2 weeks) for the KPI that best matches the user prompt.
-    Helps the model explain drops by showing where volume changed.
+    Adds deltas to highlight changes.
     """
     if engine.catalogue is None or engine.catalogue.empty or not weeks:
         return "No grouped summaries available."
@@ -412,6 +412,18 @@ def build_kpi_group_summaries(engine, weeks, country, client, user_prompt, max_d
             top = wk_df[dim].fillna("Unknown").value_counts().head(3)
             top_txt = ", ".join([f"{k} {v}" for k, v in top.items()])
             parts.append(f"{wk}: total {len(wk_df)} (top: {top_txt})")
+
+        # deltas between last two weeks if present
+        if len(last_weeks) == 2:
+            w_prev, w_curr = [w.split("_")[-1] for w in last_weeks]
+            prev_df = data[data["__week__"] == w_prev]
+            curr_df = data[data["__week__"] == w_curr]
+            prev_counts = prev_df[dim].fillna("Unknown").value_counts()
+            curr_counts = curr_df[dim].fillna("Unknown").value_counts()
+            # compute top drops
+            deltas = (curr_counts - prev_counts).sort_values().head(3)
+            delta_txt = ", ".join([f"{k} {v:+}" for k, v in deltas.items()]) if not deltas.empty else "no change"
+            parts.append(f"Delta {w_prev}->{w_curr}: {delta_txt}")
         summaries.append(f"{dim}: " + " | ".join(parts))
 
     return "\n".join(summaries)
