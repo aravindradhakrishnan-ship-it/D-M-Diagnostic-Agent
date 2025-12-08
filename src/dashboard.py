@@ -141,28 +141,11 @@ def get_available_weeks(engine):
     """Get list of available weeks from raw data."""
     weeks = engine.get_available_weeks()
     
-    def parse_week(w):
-        try:
-            parts = re.split(r'[_-]', str(w))
-            if len(parts) >= 2:
-                year = int(parts[0])
-                week_num = int(parts[1].replace('W', '').replace('w', ''))
-                return year, week_num, str(w)
-        except Exception:
-            return None
-        return None
-
-    parsed = [p for p in (parse_week(w) for w in weeks if pd.notna(w) and w != '') if p]
-    parsed = sorted(set(parsed), key=lambda x: (x[0], x[1]))
-    ordered = [p[2] for p in parsed]
-
-    if not ordered:
-        return [f"2025_W{i}" for i in range(36, 49)]
-
-    # Return the most recent 12 weeks available (fallback to all if fewer)
-    if len(ordered) > 12:
-        return ordered[-12:]
-    return ordered
+    if len(weeks) > 0:
+        unique_weeks = sorted(set([str(w) for w in weeks if pd.notna(w) and w != '']))
+        return unique_weeks[-12:] if len(unique_weeks) > 12 else unique_weeks
+    
+    return [f"2025_W{i}" for i in range(36, 49)]
 
 def calculate_change_pct(current, previous):
     """Calculate percentage change."""
