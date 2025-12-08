@@ -468,6 +468,17 @@ def build_targeted_aggregate(engine, weeks, country, client, user_prompt):
 
     data = pd.concat(frames, ignore_index=True)
 
+    # Overall totals/delta
+    overall = []
+    for w in last_weeks:
+        wk = w.split("_")[-1]
+        overall.append(f"{wk}: {len(data[data['__week__'] == wk])}")
+    if len(last_weeks) == 2:
+        w_prev, w_curr = [w.split("_")[-1] for w in last_weeks]
+        delta_total = len(data[data["__week__"] == w_curr]) - len(data[data["__week__"] == w_prev])
+        overall.append(f"Delta {w_prev}->{w_curr}: {delta_total:+}")
+    lines = [f"KPI: {kpi_name} (detailed aggregates)", "Overall: " + " | ".join(overall)]
+
     dims = []
     candidate_keys = ["project", "technician", "client", "status", "region", "team"]
     for col in data.columns:
@@ -476,9 +487,8 @@ def build_targeted_aggregate(engine, weeks, country, client, user_prompt):
             dims.append(col)
     dims = list(dict.fromkeys(dims))[:4]
     if not dims:
-        return f"KPI: {kpi_name} | No groupable dimensions found."
+        return "\n".join(lines + ["No groupable dimensions found; showing totals only."])
 
-    lines = [f"KPI: {kpi_name} (detailed aggregates)"]
     for dim in dims:
         if len(last_weeks) == 2:
             w_prev, w_curr = [w.split("_")[-1] for w in last_weeks]
