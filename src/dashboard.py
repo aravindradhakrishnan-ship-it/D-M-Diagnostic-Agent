@@ -41,7 +41,11 @@ TEXT_SECONDARY = "#666666"
 POSITIVE_GREEN = "#10b981"
 NEGATIVE_RED = "#ef4444"
 BLOQ_ORANGE = "#FF5733"
-GEMINI_MODEL = "gemini-1.5-flash"
+DEFAULT_GEMINI_MODELS = [
+    "models/gemini-1.5-flash-8b",
+    "models/gemini-1.5-flash",
+    "gemini-1.5-flash",
+]
 
 # Custom CSS - CLEAN LIGHT THEME
 st.markdown(f"""
@@ -147,12 +151,17 @@ def get_gemini_model():
     api_key = st.secrets.get("GEMINI_API_KEY") if "GEMINI_API_KEY" in st.secrets else os.getenv("GEMINI_API_KEY")
     if not api_key:
         return None
-    try:
-        genai.configure(api_key=api_key)
-        return genai.GenerativeModel(GEMINI_MODEL)
-    except Exception as e:
-        st.warning(f"Gemini configuration failed: {e}")
-        return None
+    genai.configure(api_key=api_key)
+    model_names = [os.getenv("GEMINI_MODEL")] if os.getenv("GEMINI_MODEL") else []
+    model_names = [m for m in model_names + DEFAULT_GEMINI_MODELS if m]
+    for m in model_names:
+        try:
+            return genai.GenerativeModel(m)
+        except Exception as e:
+            # try next fallback
+            continue
+    st.warning("Gemini configuration failed: no compatible model found. Try setting GEMINI_MODEL to a supported model.")
+    return None
 
 
 def render_ai_chat(retriever, selected_country, selected_weeks, selected_client):
