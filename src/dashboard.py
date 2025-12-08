@@ -147,13 +147,21 @@ def get_available_weeks(engine):
     
     return [f"2025_W{i}" for i in range(36, 49)]
 
+def get_available_clients(engine, source_table: str = 'MNT Stages RAW'):
+    """Get list of clients from raw data."""
+    df = engine.get_raw_data(source_table)
+    if df is None or 'Client' not in df.columns:
+        return []
+    clients = [c for c in df['Client'].dropna().unique().tolist() if str(c).strip() != '']
+    return sorted(clients)
+
 def calculate_change_pct(current, previous):
     """Calculate percentage change."""
     if previous == 0 or previous is None or pd.isna(previous):
         return None
     return ((current - previous) / previous) * 100
 
-def create_kpi_week_table_with_changes(engine, country, weeks):
+def create_kpi_week_table_with_changes(engine, country, weeks, client=None):
     """Create table with KPIs, weeks, and week-over-week changes."""
     kpi_list = []
     for _, kpi_def in engine.catalogue.iterrows():
@@ -170,7 +178,7 @@ def create_kpi_week_table_with_changes(engine, country, weeks):
         
         prev_value = None
         for week in weeks:
-            result = engine.calculate_kpi(kpi['kpi_id'], country, week)
+            result = engine.calculate_kpi(kpi['kpi_id'], country, week, client)
             
             if 'error' not in result:
                 value = result.get('value', 0)
@@ -210,7 +218,7 @@ def format_change_html(change):
     color_class = "change-positive" if change > 0 else "change-negative"
     return f'<span class="{color_class}">{sign}{change:.0f}%</span>'
 
-def show_cell_diagnostic(engine, kpi_id, kpi_name, country, week):
+def show_cell_diagnostic(engine, kpi_id, kpi_name, country, week, client=None):
     """Show diagnostic for specific KPI + Week."""
     # Back button at the top
     if st.button("← Back to Overview"):
@@ -221,7 +229,7 @@ def show_cell_diagnostic(engine, kpi_id, kpi_name, country, week):
     st.markdown(f"### 🔍 Diagnostic: {kpi_name} - {week.split('_')[-1]}")
     
     # Calculate KPI
-    result = engine.calculate_kpi(kpi_id, country, week)
+    result = engine.calculate_kpi(kpi_id, country, week, client)
     
     if 'error' in result:
         st.error(f"Error: {result['error']}")
@@ -237,7 +245,7 @@ def show_cell_diagnostic(engine, kpi_id, kpi_name, country, week):
     
     trend_data = []
     for w in display_weeks:
-        res = engine.calculate_kpi(kpi_id, country, w)
+        res = engine.calculate_kpi(kpi_id, country, w, client)
         if 'error' not in res:
             trend_data.append({
                 'Week': w.split('_')[-1],
@@ -482,6 +490,12 @@ def main():
         countries,
         index=0 if len(countries) > 0 else None
     )
+
+    # Client selector
+    clients = get_available_clients(engine)
+    client_options = ["All Clients"] + clients if clients else ["All Clients"]
+    selected_client_option = st.sidebar.selectbox("Select Client", client_options, index=0)
+    selected_client = None if selected_client_option == "All Clients" else selected_client_option
     
     # Week range
     all_weeks = get_available_weeks(engine)
@@ -508,6 +522,7 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.markdown("### Current Selection")
     st.sidebar.markdown(f"**Country:** {selected_country}")
+    st.sidebar.markdown(f"**Client:** {selected_client_option}")
     st.sidebar.markdown(f"**Weeks:** {len(selected_weeks)} weeks")
     
     # Main content
@@ -516,7 +531,7 @@ def main():
         st.markdown("---")
         
         with st.spinner(f"Calculating KPIs for {selected_country}..."):
-            df, weeks = create_kpi_week_table_with_changes(engine, selected_country, selected_weeks)
+            df, weeks = create_kpi_week_table_with_changes(engine, selected_country, selected_weeks, selected_client)
         
         if len(df) > 0:
             # Column headers (no Target column)
@@ -575,7 +590,8 @@ def main():
             st.session_state.selected_cell['kpi_id'],
             st.session_state.selected_cell['kpi_name'],
             selected_country,
-            st.session_state.selected_cell['week']
+            st.session_state.selected_cell['week'],
+            selected_client
         )
 
 if __name__ == "__main__":
