@@ -166,7 +166,7 @@ def get_gemini_model():
     return None
 
 
-def render_ai_chat(retriever, selected_country, selected_weeks, selected_client):
+def render_ai_chat(retriever, engine, selected_country, selected_weeks, selected_client):
     """Render the Gemini chat panel."""
     st.markdown("---")
     st.markdown("### 🤖 Ask the KPIs (Gemini)")
@@ -190,17 +190,19 @@ def render_ai_chat(retriever, selected_country, selected_weeks, selected_client)
         # Retrieve context from catalogue
         context_hits = retriever.search(user_prompt, top_k=3) if retriever else []
         context_text = "\n".join([f"{i+1}. {hit[1]}" for i, hit in enumerate(context_hits)]) if context_hits else "No catalogue context found."
+        kpi_summary = build_kpi_summary(engine, selected_weeks, selected_country, selected_client)
 
         filters_text = f"Country={selected_country}; Weeks={', '.join(selected_weeks)}; Client={selected_client or 'All'}"
 
         system_prompt = (
-            "You are a concise KPI assistant. Answer only using the provided context and filters. "
+            "You are a concise KPI assistant. Answer only using the provided context, KPI summaries, and filters. "
             "If you don't have enough info, say so. Do not make up numbers."
         )
         user_block = (
             f"User question: {user_prompt}\n\n"
             f"Filters: {filters_text}\n\n"
-            f"Catalogue context:\n{context_text}"
+            f"Catalogue context:\n{context_text}\n\n"
+            f"KPI summaries:\n{kpi_summary}"
         )
 
         try:
@@ -310,6 +312,29 @@ def format_change_html(change):
     sign = "+" if change > 0 else ""
     color_class = "change-positive" if change > 0 else "change-negative"
     return f'<span class="{color_class}">{sign}{change:.0f}%</span>'
+
+def build_kpi_summary(engine, weeks, country, client=None, max_kpis=5):
+    """
+    Build a small textual summary of KPI values for the selected weeks.
+    Limits to first max_kpis KPIs to keep prompt compact.
+    """
+    summaries = []
+    kpi_defs = engine.catalogue.head(max_kpis)
+    for _, kpi_def in kpi_defs.iterrows():
+        kpi_id = kpi_def['kpi_id']
+        kpi_name = kpi_def['kpi_name']
+        values = []
+        for w in weeks:
+            res = engine.calculate_kpi(kpi_id, country, w, client)
+            if 'error' in res:
+                continue
+            val = res.get('value')
+            if val is None or (isinstance(val, float) and pd.isna(val)):
+                continue
+            values.append(f"{w.split('_')[-1]}: {val:,.0f}" if isinstance(val, (int, float)) else f"{w.split('_')[-1]}: {val}")
+        if values:
+            summaries.append(f"{kpi_name} -> " + "; ".join(values))
+    return "\n".join(summaries) if summaries else "No KPI summary available."
 
 def show_cell_diagnostic(engine, kpi_id, kpi_name, country, week, client=None):
     """Show diagnostic for specific KPI + Week."""
@@ -678,7 +703,7 @@ def main():
             st.warning("No KPIs to display")
 
         # AI chat on overview
-        render_ai_chat(retriever, selected_country, selected_weeks, selected_client)
+        render_ai_chat(retriever, engine, selected_country, selected_weeks, selected_client)
 
     else:
         # Show diagnostic view
@@ -691,7 +716,7 @@ def main():
             selected_client
         )
         # AI chat inside diagnostic view as well
-        render_ai_chat(retriever, selected_country, selected_weeks, selected_client)
+        render_ai_chat(retriever, engine, selected_country, selected_weeks, selected_client)
 
 if __name__ == "__main__":
     main()
