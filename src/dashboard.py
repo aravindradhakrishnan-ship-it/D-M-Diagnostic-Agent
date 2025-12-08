@@ -159,11 +159,9 @@ def get_available_weeks(engine):
     if not ordered:
         return [f"2025_W{i}" for i in range(36, 49)]
 
-    # Exclude the most recent week and return the previous 12 (or fewer if not available)
-    if len(ordered) >= 13:
-        return ordered[-13:-1]
-    if len(ordered) > 1:
-        return ordered[:-1]
+    # Return the most recent 12 weeks (including the latest week available)
+    if len(ordered) > 12:
+        return ordered[-12:]
     return ordered
 
 def calculate_change_pct(current, previous):
