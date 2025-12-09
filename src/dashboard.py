@@ -166,7 +166,7 @@ def get_gemini_model():
     return None
 
 
-def render_ai_chat(retriever, engine, selected_country, selected_weeks, selected_client):
+def render_ai_chat(retriever, engine, selected_country, selected_weeks, selected_client, kpi_id_hint: str = None):
     """Render the Gemini chat panel."""
     st.markdown("---")
     st.markdown("### 🤖 Ask the KPIs (Gemini)")
@@ -190,9 +190,9 @@ def render_ai_chat(retriever, engine, selected_country, selected_weeks, selected
         # Retrieve context from catalogue
         context_hits = retriever.search(user_prompt, top_k=3) if retriever else []
         context_text = "\n".join([f"{i+1}. {hit[1]}" for i, hit in enumerate(context_hits)]) if context_hits else "No catalogue context found."
-        kpi_summary = build_kpi_summary(engine, selected_weeks, selected_country, selected_client, focus_query=user_prompt)
-        kpi_groups = build_kpi_group_summaries(engine, selected_weeks, selected_country, selected_client, user_prompt)
-        kpi_aggregates = build_targeted_aggregate(engine, selected_weeks, selected_country, selected_client, user_prompt)
+        kpi_summary = build_kpi_summary(engine, selected_weeks, selected_country, selected_client, focus_query=user_prompt, kpi_id_hint=kpi_id_hint)
+        kpi_groups = build_kpi_group_summaries(engine, selected_weeks, selected_country, selected_client, user_prompt, kpi_id_hint=kpi_id_hint)
+        kpi_aggregates = build_targeted_aggregate(engine, selected_weeks, selected_country, selected_client, user_prompt, kpi_id_hint=kpi_id_hint)
 
         filters_text = f"Country={selected_country}; Weeks={', '.join(selected_weeks)}; Client={selected_client or 'All'}"
 
@@ -317,10 +317,11 @@ def format_change_html(change):
     color_class = "change-positive" if change > 0 else "change-negative"
     return f'<span class="{color_class}">{sign}{change:.0f}%</span>'
 
-def build_kpi_summary(engine, weeks, country, client=None, max_kpis=5, focus_query: str = None):
+def build_kpi_summary(engine, weeks, country, client=None, max_kpis=5, focus_query: str = None, kpi_id_hint: str = None):
     """
     Build a small textual summary of KPI values for the selected weeks.
     If focus_query is provided, prioritize KPIs whose name matches the query.
+    If kpi_id_hint is provided, focus only on that KPI.
     Limits to first max_kpis KPIs to keep prompt compact.
     """
     summaries = []
@@ -332,6 +333,8 @@ def build_kpi_summary(engine, weeks, country, client=None, max_kpis=5, focus_que
         return 1 if q in name.lower() else 0
 
     kpi_defs = engine.catalogue.copy()
+    if kpi_id_hint:
+        kpi_defs = kpi_defs[kpi_defs["kpi_id"] == kpi_id_hint]
     kpi_defs["match_score"] = kpi_defs["kpi_name"].apply(match_score)
     kpi_defs = kpi_defs.sort_values(by="match_score", ascending=False).head(max_kpis)
 
@@ -352,7 +355,7 @@ def build_kpi_summary(engine, weeks, country, client=None, max_kpis=5, focus_que
     return "\n".join(summaries) if summaries else "No KPI summary available."
 
 
-def build_kpi_group_summaries(engine, weeks, country, client, user_prompt, max_dims=3):
+def build_kpi_group_summaries(engine, weeks, country, client, user_prompt, max_dims=3, kpi_id_hint: str = None):
     """
     Build lightweight grouped summaries (last 2 weeks) for the KPI that best matches the user prompt.
     Adds deltas to highlight changes.
@@ -367,8 +370,11 @@ def build_kpi_group_summaries(engine, weeks, country, client, user_prompt, max_d
 
     catalogue = engine.catalogue.copy()
     catalogue["match_score"] = catalogue.apply(score, axis=1)
-    best = catalogue.sort_values(by="match_score", ascending=False).head(1)
-    if best.empty or best.iloc[0]["match_score"] == 0:
+    if kpi_id_hint:
+        best = catalogue[catalogue["kpi_id"] == kpi_id_hint]
+    else:
+        best = catalogue.sort_values(by="match_score", ascending=False).head(1)
+    if best.empty or (not kpi_id_hint and best.iloc[0]["match_score"] == 0):
         return "No specific KPI match found for this question."
 
     kpi_row = best.iloc[0]
@@ -431,7 +437,7 @@ def build_kpi_group_summaries(engine, weeks, country, client, user_prompt, max_d
     return "\n".join(summaries)
 
 
-def build_targeted_aggregate(engine, weeks, country, client, user_prompt):
+def build_targeted_aggregate(engine, weeks, country, client, user_prompt, kpi_id_hint: str = None):
     """
     Build more detailed aggregates for the KPI that matches the question:
     - Last two weeks only
@@ -446,8 +452,11 @@ def build_targeted_aggregate(engine, weeks, country, client, user_prompt):
 
     catalogue = engine.catalogue.copy()
     catalogue["match_score"] = catalogue.apply(score, axis=1)
-    best = catalogue.sort_values(by="match_score", ascending=False).head(1)
-    if best.empty or best.iloc[0]["match_score"] == 0:
+    if kpi_id_hint:
+        best = catalogue[catalogue["kpi_id"] == kpi_id_hint]
+    else:
+        best = catalogue.sort_values(by="match_score", ascending=False).head(1)
+    if best.empty or (not kpi_id_hint and best.iloc[0]["match_score"] == 0):
         return "No specific KPI match found for this question."
 
     kpi_row = best.iloc[0]
@@ -877,9 +886,16 @@ def main():
         else:
             st.warning("No KPIs to display")
 
-        # AI chat on overview
-        render_ai_chat(retriever, engine, selected_country, selected_weeks, selected_client)
-
+        # AI chat on overview with optional KPI picker
+        chat_kpi_options = ["Auto (match question)"] + engine.catalogue["kpi_name"].tolist()
+        chosen = st.selectbox("Chat KPI (optional)", options=chat_kpi_options, index=0, key="chat_kpi_overview")
+        chosen_kpi_id = None
+        if chosen != "Auto (match question)":
+            match = engine.catalogue[engine.catalogue["kpi_name"] == chosen]
+            if not match.empty:
+                chosen_kpi_id = match.iloc[0]["kpi_id"]
+        render_ai_chat(retriever, engine, selected_country, selected_weeks, selected_client, kpi_id_hint=chosen_kpi_id)
+    
     else:
         # Show diagnostic view
         show_cell_diagnostic(
@@ -891,7 +907,14 @@ def main():
             selected_client
         )
         # AI chat inside diagnostic view as well
-        render_ai_chat(retriever, engine, selected_country, selected_weeks, selected_client)
+        render_ai_chat(
+            retriever,
+            engine,
+            selected_country,
+            selected_weeks,
+            selected_client,
+            kpi_id_hint=st.session_state.selected_cell['kpi_id']
+        )
 
 if __name__ == "__main__":
     main()
