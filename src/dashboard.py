@@ -166,7 +166,7 @@ def get_gemini_model():
     return None
 
 
-def render_ai_chat(retriever, engine, selected_country, selected_weeks, selected_client, kpi_id_hint: str = None):
+def render_ai_chat(retriever, engine, selected_country, selected_weeks, selected_client, kpi_id_hint: str = None, week_focus: str = None):
     """Render the Gemini chat panel."""
     st.markdown("---")
     st.markdown("### 🤖 Ask the KPIs (Gemini)")
@@ -205,6 +205,7 @@ def render_ai_chat(retriever, engine, selected_country, selected_weeks, selected
             selected_client,
             user_prompt,
             kpi_id_hint=kpi_id_hint,
+            week_focus=week_focus,
         )
         kpi_aggregates = build_targeted_aggregate(
             engine,
@@ -213,6 +214,7 @@ def render_ai_chat(retriever, engine, selected_country, selected_weeks, selected
             selected_client,
             user_prompt,
             kpi_id_hint=kpi_id_hint,
+            week_focus=week_focus,
         )
 
         with st.expander("Debug: AI context", expanded=False):
@@ -388,7 +390,7 @@ def build_kpi_summary(engine, weeks, country, client=None, max_kpis=5, focus_que
     return "\n".join(summaries) if summaries else "No KPI summary available."
 
 
-def build_kpi_group_summaries(engine, weeks, country, client, user_prompt, max_dims=3, kpi_id_hint: str = None):
+def build_kpi_group_summaries(engine, weeks, country, client, user_prompt, max_dims=3, kpi_id_hint: str = None, week_focus: str = None):
     """
     Build lightweight grouped summaries (last 2 weeks) for the KPI that best matches the user prompt.
     Adds deltas to highlight changes.
@@ -414,8 +416,13 @@ def build_kpi_group_summaries(engine, weeks, country, client, user_prompt, max_d
     kpi_id = kpi_row["kpi_id"]
     kpi_name = kpi_row["kpi_name"]
 
-    # Use last two weeks to compare
-    last_weeks = weeks[-2:] if len(weeks) >= 2 else weeks
+    # Use focused week + previous if provided, else last two
+    if week_focus and week_focus in weeks:
+        idx = weeks.index(week_focus)
+        candidates = [weeks[idx - 1], weeks[idx]] if idx > 0 else [weeks[idx]]
+        last_weeks = [w for w in candidates if w in weeks]
+    else:
+        last_weeks = weeks[-2:] if len(weeks) >= 2 else weeks
     frames = []
     for w in last_weeks:
         df = engine.get_filtered_kpi_data(kpi_id, country, w, client)
@@ -470,7 +477,7 @@ def build_kpi_group_summaries(engine, weeks, country, client, user_prompt, max_d
     return "\n".join(summaries)
 
 
-def build_targeted_aggregate(engine, weeks, country, client, user_prompt, kpi_id_hint: str = None):
+def build_targeted_aggregate(engine, weeks, country, client, user_prompt, kpi_id_hint: str = None, week_focus: str = None):
     """
     Build more detailed aggregates for the KPI that matches the question:
     - Last two weeks only
@@ -496,7 +503,12 @@ def build_targeted_aggregate(engine, weeks, country, client, user_prompt, kpi_id
     kpi_id = kpi_row["kpi_id"]
     kpi_name = kpi_row["kpi_name"]
 
-    last_weeks = weeks[-2:] if len(weeks) >= 2 else weeks
+    if week_focus and week_focus in weeks:
+        idx = weeks.index(week_focus)
+        candidates = [weeks[idx - 1], weeks[idx]] if idx > 0 else [weeks[idx]]
+        last_weeks = [w for w in candidates if w in weeks]
+    else:
+        last_weeks = weeks[-2:] if len(weeks) >= 2 else weeks
     frames = []
     for w in last_weeks:
         df = engine.get_filtered_kpi_data(kpi_id, country, w, client)
@@ -927,7 +939,7 @@ def main():
             match = engine.catalogue[engine.catalogue["kpi_name"] == chosen]
             if not match.empty:
                 chosen_kpi_id = match.iloc[0]["kpi_id"]
-        render_ai_chat(retriever, engine, selected_country, selected_weeks, selected_client, kpi_id_hint=chosen_kpi_id)
+        render_ai_chat(retriever, engine, selected_country, selected_weeks, selected_client, kpi_id_hint=chosen_kpi_id, week_focus=None)
     
     else:
         # Show diagnostic view
@@ -946,7 +958,8 @@ def main():
             selected_country,
             selected_weeks,
             selected_client,
-            kpi_id_hint=st.session_state.selected_cell['kpi_id']
+            kpi_id_hint=st.session_state.selected_cell['kpi_id'],
+            week_focus=st.session_state.selected_cell['week']
         )
 
 if __name__ == "__main__":
