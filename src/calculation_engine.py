@@ -1,4 +1,4 @@
-yeah"""
+"""
 KPI Calculation Engine
 Calculates KPIs based on definitions from KPI Catalogue and raw data.
 """
