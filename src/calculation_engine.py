@@ -1,4 +1,4 @@
-"""
+yeah"""
 KPI Calculation Engine
 Calculates KPIs based on definitions from KPI Catalogue and raw data.
 """
@@ -15,7 +15,7 @@ import streamlit as st
 class KPICalculationEngine:
     # ... (existing code)
 
-    def analyze_cancellations(self, kpi_id: str, country: str, week: str, client: str = None) -> pd.DataFrame:
+    def analyze_cancellations(self, kpi_id: str, country: str, week: str) -> pd.DataFrame:
         """
         Analyze cancelled interventions to find context (previous job, distance, time).
         Uses wider dataset (skipping status filter) to find the actual previous performed job.
@@ -43,11 +43,10 @@ class KPICalculationEngine:
         # 3. Apply Filters EXCEPT strict status (to see Done + Cancelled)
         # We skip filters that look like they select for 'cancelled' status
         df = self.apply_filters(
-            raw_data,
-            kpi_def,
-            country,
-            week,
-            client,
+            raw_data, 
+            kpi_def, 
+            country, 
+            week, 
             exclude_values=['cancelled', 'anulled', 'canceled']
         )
         
@@ -62,10 +61,9 @@ class KPICalculationEngine:
         # Technician column: use only the explicit header we expect
         tech_col = next((c for c in df.columns if c.strip().lower() == 'chosen team / technician'), None)
         status_col = next((c for c in df.columns if 'status' in c.lower()), None)
-        planned_col = next((c for c in df.columns if 'planned' in c.lower()), None)
         
-        st.write(f"🔍 DEBUG: Columns Found - Tech: {tech_col}, Status: {status_col}, Planned: {planned_col}")
-        st.write(f"DEBUG: All Columns: {df.columns.tolist()}") # verbose
+        st.write(f"🔍 DEBUG: Columns Found - Tech: {tech_col}, Status: {status_col}")
+        # st.write(f"DEBUG: All Columns: {df.columns.tolist()}") # verbose
     
     def __init__(self, google_sheets_client):
         """
@@ -113,7 +111,7 @@ class KPICalculationEngine:
         return df
     
     def apply_filters(self, df: pd.DataFrame, kpi_def: pd.Series, 
-                     country: str = None, week: str = None, client: str = None,
+                     country: str = None, week: str = None, 
                      exclude_values: List[str] = None) -> pd.DataFrame:
         """
         Apply all filters defined in KPI definition.
@@ -162,8 +160,6 @@ class KPICalculationEngine:
                     filter_value = get_country_data_value(country)
                 elif filter_value == 'selected_week' and week:
                     filter_value = week
-                elif filter_value == 'selected_client' and client:
-                    filter_value = client
                 else:
                     continue  # Skip if dynamic value not provided
             
@@ -196,7 +192,7 @@ class KPICalculationEngine:
         return filtered_df
     
     def calculate_kpi(self, kpi_id: str, country: str = None, 
-                     week: str = None, client: str = None) -> Dict[str, Any]:
+                     week: str = None) -> Dict[str, Any]:
         """
         Calculate a specific KPI value.
         
@@ -217,7 +213,7 @@ class KPICalculationEngine:
         
         # Handle ratio KPIs (calculated from other KPIs)
         if kpi_def['aggregation_type'] == 'RATIO':
-            return self._calculate_ratio_kpi(kpi_def, country, week, client)
+            return self._calculate_ratio_kpi(kpi_def, country, week)
         
         # Get source data
         source_table = kpi_def['source_table']
@@ -227,9 +223,7 @@ class KPICalculationEngine:
             return {'error': f'Could not load data from {source_table}'}
         
         # Apply filters
-        filtered_data = self.apply_filters(raw_data, kpi_def, country, week, client)
-        if client and 'Client' in filtered_data.columns:
-            filtered_data = filtered_data[filtered_data['Client'] == client]
+        filtered_data = self.apply_filters(raw_data, kpi_def, country, week)
         
         # Calculate based on aggregation type
         aggregation_type = kpi_def['aggregation_type']
@@ -270,7 +264,7 @@ class KPICalculationEngine:
         }
     
     def _calculate_ratio_kpi(self, kpi_def: pd.Series, country: str = None, 
-                            week: str = None, client: str = None) -> Dict[str, Any]:
+                            week: str = None) -> Dict[str, Any]:
         """
         Calculate KPIs that are ratios of other KPIs.
         
@@ -294,8 +288,8 @@ class KPICalculationEngine:
         denominator_kpi = match.group(2)
         
         # Calculate both KPIs
-        num_result = self.calculate_kpi(numerator_kpi, country, week, client)
-        denom_result = self.calculate_kpi(denominator_kpi, country, week, client)
+        num_result = self.calculate_kpi(numerator_kpi, country, week)
+        denom_result = self.calculate_kpi(denominator_kpi, country, week)
         
         if 'error' in num_result or 'error' in denom_result:
             return {'error': 'Could not calculate component KPIs'}
@@ -376,7 +370,7 @@ class KPICalculationEngine:
         }
 
     def get_filtered_kpi_data(self, kpi_id: str, country: str = None, 
-                             week: str = None, client: str = None) -> pd.DataFrame:
+                             week: str = None) -> pd.DataFrame:
         """
         Get the filtered raw data for a specific KPI.
         
@@ -402,7 +396,7 @@ class KPICalculationEngine:
             if match:
                 kpi_id = match.group(1) # Switch to numerator KPI
                 # Recurse to get that KPI's definition
-                return self.get_filtered_kpi_data(kpi_id, country, week, client)
+                return self.get_filtered_kpi_data(kpi_id, country, week)
             else:
                 return pd.DataFrame()
         
@@ -416,13 +410,11 @@ class KPICalculationEngine:
         # Apply filters
         # Note: We want to show the data relevant to the selected week/country
         # so we apply the same filters as the KPI calculation
-        filtered_data = self.apply_filters(raw_data, kpi_def, country, week, client)
-        if client and 'Client' in filtered_data.columns:
-            filtered_data = filtered_data[filtered_data['Client'] == client]
+        filtered_data = self.apply_filters(raw_data, kpi_def, country, week)
         
         return filtered_data
     
-    def calculate_all_kpis(self, country: str, week: str, client: str = None) -> List[Dict[str, Any]]:
+    def calculate_all_kpis(self, country: str, week: str) -> List[Dict[str, Any]]:
         """
         Calculate all KPIs for given country and week.
         
@@ -436,7 +428,7 @@ class KPICalculationEngine:
         results = []
         for _, kpi_def in self.catalogue.iterrows():
             kpi_id = kpi_def['kpi_id']
-            result = self.calculate_kpi(kpi_id, country, week, client)
+            result = self.calculate_kpi(kpi_id, country, week)
             results.append(result)
         
         return results
@@ -494,12 +486,12 @@ class KPICalculationEngine:
         r = 6371 # Radius of earth in kilometers.
         return c * r
 
-    def analyze_cancellations(self, kpi_id: str, country: str, week: str, client: str = None) -> pd.DataFrame:
+    def analyze_cancellations(self, kpi_id: str, country: str, week: str) -> pd.DataFrame:
         """
         Analyze cancelled interventions to find context (previous job, distance, time).
         Uses wider dataset (skipping status filter) to find the actual previous performed job.
         """
-        print(f"DEBUG: analyze_cancellations called for KPI: {kpi_id}, Country: {country}, Week: {week}, Client: {client}")
+        print(f"DEBUG: analyze_cancellations called for KPI: {kpi_id}, Country: {country}, Week: {week}")
 
         # 1. Get KPI Definition
         kpi_defs = self.catalogue[self.catalogue['kpi_id'] == kpi_id]
@@ -525,8 +517,7 @@ class KPICalculationEngine:
             raw_data, 
             kpi_def, 
             country, 
-            week,
-            client, 
+            week, 
             exclude_values=['cancelled', 'anulled', 'canceled']
         )
         
@@ -541,9 +532,8 @@ class KPICalculationEngine:
         # Technician column: use only the explicit header we expect
         tech_col = next((c for c in df.columns if c.strip().lower() == 'chosen team / technician'), None)
         status_col = next((c for c in df.columns if 'status' in c.lower()), None)
-        planned_col = next((c for c in df.columns if 'planned' in c.lower()), None)
         
-        print(f"DEBUG: Analysis Columns Found - Tech: {tech_col}, Status: {status_col}, Planned: {planned_col}")
+        print(f"DEBUG: Analysis Columns Found - Tech: {tech_col}, Status: {status_col}")
         print(f"DEBUG: All Columns: {df.columns.tolist()}")
 
         if not tech_col or not status_col:
@@ -555,63 +545,54 @@ class KPICalculationEngine:
              print(f"DEBUG: Unique Statuses: {df[status_col].unique()}")
             
         # Ensure date columns are datetime
-        for col in ['Intervention Start Date', 'Intervention Done Date', planned_col if planned_col else None]:
-            if col and col in df.columns:
+        for col in ['Intervention Start Date', 'Intervention Done Date']:
+            if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce')
 
-        # Use planned date/time if available to determine order
-        time_order_col = planned_col if planned_col else 'Intervention Start Date'
-        df = df.sort_values(by=[tech_col, time_order_col])
-        
-        # Precompute cancel mask for the whole frame
-        cancel_mask = df[status_col].astype(str).str.lower().str.contains('cancel') | df[status_col].astype(str).str.lower().str.contains('anul')
-        df['Intervention Date'] = df[time_order_col].dt.date
+        # Sort by Technician and Start Date
+        df = df.sort_values(by=[tech_col, 'Intervention Start Date'])
         
         analysis_results = []
         
-        # Group by technician
-        for technician, tech_group in df.groupby(tech_col):
-            tech_group = tech_group.sort_values(by=time_order_col)
-            tech_cancel_mask = cancel_mask.loc[tech_group.index]
+        # Group by technician to analyze sequence
+        for technician, group in df.groupby(tech_col):
+            group = group.sort_values('Intervention Start Date')
             
-            # For each day with cancellations, find first cancelled and last non-cancelled BEFORE that cancelled (using positional order)
-            cancel_days = tech_group.loc[tech_cancel_mask, 'Intervention Date'].dropna().unique()
-            for day in cancel_days:
-                day_rows = tech_group[tech_group['Intervention Date'] == day]
-                day_cancel_mask = tech_cancel_mask.loc[day_rows.index]
-                day_cancelled = day_rows[day_cancel_mask].sort_values(by=time_order_col)
-                if day_cancelled.empty:
-                    continue
+            last_done_job = None
+            
+            for idx, curr_job in group.iterrows():
+                status_str = str(curr_job[status_col]).lower()
+                is_cancelled = 'cancel' in status_str or 'anul' in status_str
                 
-                # Position of first cancelled within technician-ordered rows
-                first_cancel_pos = tech_group.index.get_loc(day_cancelled.index[0])
-                first_cancel = day_cancelled.iloc[0]
-                
-                prior_rows = tech_group.iloc[:first_cancel_pos]
-                prior_done_mask = ~tech_cancel_mask.loc[prior_rows.index]
-                prior_done = prior_rows[prior_done_mask].dropna(subset=['Intervention Done Date'])
-                last_done = prior_done.iloc[-1] if not prior_done.empty else None
-                
-                dist = None
-                prev_done_date = None
-                prev_done_time = None
-                if last_done is not None:
-                    dist = self._haversine_distance(
-                        last_done.get('Latitude'), last_done.get('Longitude'),
-                        first_cancel.get('Latitude'), first_cancel.get('Longitude')
-                    )
-                    done_dt = last_done.get('Intervention Done Date')
-                    if pd.notna(done_dt):
-                        prev_done_date = done_dt.date()
-                        prev_done_time = done_dt.time()
-                
-                analysis_results.append({
-                    'Technician': technician,
-                    'Intervention date': first_cancel[time_order_col].date() if pd.notna(first_cancel[time_order_col]) else None,
-                    'Number of cancelled jobs': day_cancelled.shape[0],
-                    'Prev Job Done Date': prev_done_date,
-                    'Prev Job Done Time': prev_done_time,
-                    'Distance (km)': round(dist, 1) if dist is not None else None
-                })
+                if is_cancelled:
+                    # Current job is cancelled - check against last DONE job
+                    if last_done_job is not None:
+                        # Calculate metrics
+                        dist = self._haversine_distance(
+                            last_done_job.get('Latitude'), last_done_job.get('Longitude'),
+                            curr_job.get('Latitude'), curr_job.get('Longitude')
+                        )
+                        
+                        # Time gap: Start of Current - Done of Previous
+                        gap_minutes = None
+                        start_time = curr_job['Intervention Start Date']
+                        done_time = last_done_job['Intervention Done Date']
+                        
+                        if pd.notna(start_time) and pd.notna(done_time):
+                            delta = start_time - done_time
+                            gap_minutes = delta.total_seconds() / 60
+                        
+                        analysis_results.append({
+                            'Technician': technician,
+                            'Cancelled Job Start': start_time,
+                            'Prev Job Done': done_time,
+                            'Gap (min)': round(gap_minutes, 1) if gap_minutes is not None else None,
+                            'Distance (km)': round(dist, 1) if dist is not None else None,
+                            'Prev Job Status': last_done_job[status_col]
+                        })
+                else:
+                    # This is a "Done" (or at least non-cancelled) job
+                    # Update it as the potential "previous job" for the next cancellation
+                    last_done_job = curr_job
 
         return pd.DataFrame(analysis_results)

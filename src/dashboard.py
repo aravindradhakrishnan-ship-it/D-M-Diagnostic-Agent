@@ -190,9 +190,42 @@ def render_ai_chat(retriever, engine, selected_country, selected_weeks, selected
         # Retrieve context from catalogue
         context_hits = retriever.search(user_prompt, top_k=3) if retriever else []
         context_text = "\n".join([f"{i+1}. {hit[1]}" for i, hit in enumerate(context_hits)]) if context_hits else "No catalogue context found."
-        kpi_summary = build_kpi_summary(engine, selected_weeks, selected_country, selected_client, focus_query=user_prompt, kpi_id_hint=kpi_id_hint)
-        kpi_groups = build_kpi_group_summaries(engine, selected_weeks, selected_country, selected_client, user_prompt, kpi_id_hint=kpi_id_hint)
-        kpi_aggregates = build_targeted_aggregate(engine, selected_weeks, selected_country, selected_client, user_prompt, kpi_id_hint=kpi_id_hint)
+        kpi_summary = build_kpi_summary(
+            engine,
+            selected_weeks,
+            selected_country,
+            selected_client,
+            focus_query=user_prompt,
+            kpi_id_hint=kpi_id_hint,
+        )
+        kpi_groups = build_kpi_group_summaries(
+            engine,
+            selected_weeks,
+            selected_country,
+            selected_client,
+            user_prompt,
+            kpi_id_hint=kpi_id_hint,
+        )
+        kpi_aggregates = build_targeted_aggregate(
+            engine,
+            selected_weeks,
+            selected_country,
+            selected_client,
+            user_prompt,
+            kpi_id_hint=kpi_id_hint,
+        )
+
+        with st.expander("Debug: AI context", expanded=False):
+            st.markdown(f"- KPI hint: `{kpi_id_hint or 'auto'}`")
+            st.markdown(f"- Weeks: {', '.join(selected_weeks)}")
+            st.markdown("**Catalogue hits:**")
+            st.markdown(context_text or "_none_")
+            st.markdown("**KPI summaries:**")
+            st.markdown(kpi_summary or "_none_")
+            st.markdown("**Grouped breakdowns:**")
+            st.markdown(kpi_groups or "_none_")
+            st.markdown("**Detailed aggregates:**")
+            st.markdown(kpi_aggregates or "_none_")
 
         filters_text = f"Country={selected_country}; Weeks={', '.join(selected_weeks)}; Client={selected_client or 'All'}"
 
