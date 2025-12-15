@@ -15,7 +15,7 @@ import streamlit as st
 class KPICalculationEngine:
     # ... (existing code)
 
-    def analyze_cancellations(self, kpi_id: str, country: str, week: str) -> pd.DataFrame:
+    def analyze_cancellations(self, kpi_id: str, country: str, week: str, client: str = None) -> pd.DataFrame:
         """
         Analyze cancelled interventions to find context (previous job, distance, time).
         Uses wider dataset (skipping status filter) to find the actual previous performed job.
@@ -47,6 +47,7 @@ class KPICalculationEngine:
             kpi_def, 
             country, 
             week, 
+            client,
             exclude_values=['cancelled', 'anulled', 'canceled']
         )
         
@@ -111,7 +112,7 @@ class KPICalculationEngine:
         return df
     
     def apply_filters(self, df: pd.DataFrame, kpi_def: pd.Series, 
-                     country: str = None, week: str = None, 
+                     country: str = None, week: str = None, client: str = None,
                      exclude_values: List[str] = None) -> pd.DataFrame:
         """
         Apply all filters defined in KPI definition.
@@ -121,6 +122,7 @@ class KPICalculationEngine:
             kpi_def: KPI definition row from catalogue
             country: Selected country (for dynamic filters)
             week: Selected week (for dynamic filters)
+            client: Selected client (for dynamic filters)
             exclude_values: List of filter values to skip (e.g. ['cancelled'])
             
         Returns:
@@ -160,6 +162,8 @@ class KPICalculationEngine:
                     filter_value = get_country_data_value(country)
                 elif filter_value == 'selected_week' and week:
                     filter_value = week
+                elif filter_value == 'selected_client' and client:
+                    filter_value = client
                 else:
                     continue  # Skip if dynamic value not provided
             
@@ -192,7 +196,7 @@ class KPICalculationEngine:
         return filtered_df
     
     def calculate_kpi(self, kpi_id: str, country: str = None, 
-                     week: str = None) -> Dict[str, Any]:
+                     week: str = None, client: str = None) -> Dict[str, Any]:
         """
         Calculate a specific KPI value.
         
@@ -213,7 +217,7 @@ class KPICalculationEngine:
         
         # Handle ratio KPIs (calculated from other KPIs)
         if kpi_def['aggregation_type'] == 'RATIO':
-            return self._calculate_ratio_kpi(kpi_def, country, week)
+            return self._calculate_ratio_kpi(kpi_def, country, week, client)
         
         # Get source data
         source_table = kpi_def['source_table']
@@ -223,7 +227,7 @@ class KPICalculationEngine:
             return {'error': f'Could not load data from {source_table}'}
         
         # Apply filters
-        filtered_data = self.apply_filters(raw_data, kpi_def, country, week)
+        filtered_data = self.apply_filters(raw_data, kpi_def, country, week, client)
         
         # Calculate based on aggregation type
         aggregation_type = kpi_def['aggregation_type']
@@ -264,7 +268,7 @@ class KPICalculationEngine:
         }
     
     def _calculate_ratio_kpi(self, kpi_def: pd.Series, country: str = None, 
-                            week: str = None) -> Dict[str, Any]:
+                            week: str = None, client: str = None) -> Dict[str, Any]:
         """
         Calculate KPIs that are ratios of other KPIs.
         
@@ -288,8 +292,8 @@ class KPICalculationEngine:
         denominator_kpi = match.group(2)
         
         # Calculate both KPIs
-        num_result = self.calculate_kpi(numerator_kpi, country, week)
-        denom_result = self.calculate_kpi(denominator_kpi, country, week)
+        num_result = self.calculate_kpi(numerator_kpi, country, week, client)
+        denom_result = self.calculate_kpi(denominator_kpi, country, week, client)
         
         if 'error' in num_result or 'error' in denom_result:
             return {'error': 'Could not calculate component KPIs'}
@@ -325,7 +329,7 @@ class KPICalculationEngine:
         }
     
     def get_root_cause_breakdown(self, kpi_id: str, country: str = None, 
-                                 week: str = None) -> Dict[str, Any]:
+                                 week: str = None, client: str = None) -> Dict[str, Any]:
         """
         Get breakdown by root cause dimensions.
         
@@ -352,7 +356,9 @@ class KPICalculationEngine:
             return {'error': f'Could not load data from {source_table}'}
         
         # Apply filters
-        filtered_data = self.apply_filters(raw_data, kpi_def, country, week)
+        filtered_data = self.apply_filters(raw_data, kpi_def, country, week, client)
+        if client and 'Client' in filtered_data.columns:
+            filtered_data = filtered_data[filtered_data['Client'] == client]
         
         # Get root cause dimensions
         breakdowns = {}
@@ -370,7 +376,7 @@ class KPICalculationEngine:
         }
 
     def get_filtered_kpi_data(self, kpi_id: str, country: str = None, 
-                             week: str = None) -> pd.DataFrame:
+                             week: str = None, client: str = None) -> pd.DataFrame:
         """
         Get the filtered raw data for a specific KPI.
         
@@ -396,7 +402,7 @@ class KPICalculationEngine:
             if match:
                 kpi_id = match.group(1) # Switch to numerator KPI
                 # Recurse to get that KPI's definition
-                return self.get_filtered_kpi_data(kpi_id, country, week)
+                return self.get_filtered_kpi_data(kpi_id, country, week, client)
             else:
                 return pd.DataFrame()
         
@@ -410,11 +416,13 @@ class KPICalculationEngine:
         # Apply filters
         # Note: We want to show the data relevant to the selected week/country
         # so we apply the same filters as the KPI calculation
-        filtered_data = self.apply_filters(raw_data, kpi_def, country, week)
+        filtered_data = self.apply_filters(raw_data, kpi_def, country, week, client)
+        if client and 'Client' in filtered_data.columns:
+            filtered_data = filtered_data[filtered_data['Client'] == client]
         
         return filtered_data
     
-    def calculate_all_kpis(self, country: str, week: str) -> List[Dict[str, Any]]:
+    def calculate_all_kpis(self, country: str, week: str, client: str = None) -> List[Dict[str, Any]]:
         """
         Calculate all KPIs for given country and week.
         
@@ -428,7 +436,7 @@ class KPICalculationEngine:
         results = []
         for _, kpi_def in self.catalogue.iterrows():
             kpi_id = kpi_def['kpi_id']
-            result = self.calculate_kpi(kpi_id, country, week)
+            result = self.calculate_kpi(kpi_id, country, week, client)
             results.append(result)
         
         return results
@@ -486,7 +494,7 @@ class KPICalculationEngine:
         r = 6371 # Radius of earth in kilometers.
         return c * r
 
-    def analyze_cancellations(self, kpi_id: str, country: str, week: str) -> pd.DataFrame:
+    def analyze_cancellations(self, kpi_id: str, country: str, week: str, client: str = None) -> pd.DataFrame:
         """
         Analyze cancelled interventions to find context (previous job, distance, time).
         Uses wider dataset (skipping status filter) to find the actual previous performed job.
@@ -517,7 +525,8 @@ class KPICalculationEngine:
             raw_data, 
             kpi_def, 
             country, 
-            week, 
+            week,
+            client,
             exclude_values=['cancelled', 'anulled', 'canceled']
         )
         
