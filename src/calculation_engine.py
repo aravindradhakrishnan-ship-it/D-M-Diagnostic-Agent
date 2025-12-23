@@ -129,9 +129,13 @@ class KPICalculationEngine:
             Filtered DataFrame
         """
         filtered_df = df.copy()
+
+        # Normalize column names for matching (strip + lowercase) to tolerate sheet typos/spacing
+        col_map = {str(c).strip().lower(): c for c in filtered_df.columns}
         
-        # Apply up to 5 filters
-        for i in range(1, 6):
+        # Apply filters defined in the catalogue. Historically this handled up to 5; bump to 7
+        # to match new columns like filter_7_* (e.g., dynamic client filters).
+        for i in range(1, 8):
             filter_field = kpi_def.get(f'filter_{i}_field', '')
             filter_operator = kpi_def.get(f'filter_{i}_operator', '')
             filter_value_type = kpi_def.get(f'filter_{i}_value_type', '')
@@ -139,8 +143,10 @@ class KPICalculationEngine:
             
             if not filter_field or filter_field == '':
                 continue
-            
-            if filter_field not in filtered_df.columns:
+
+            # Resolve column name with case/space insensitivity
+            resolved_col = col_map.get(str(filter_field).strip().lower())
+            if not resolved_col:
                 print(f"⚠️  Warning: Filter field '{filter_field}' not found in data")
                 continue
 
@@ -155,14 +161,15 @@ class KPICalculationEngine:
                 if should_skip:
                     continue
             
-            # Resolve dynamic values
-            if filter_value_type == 'dynamic':
-                if filter_value == 'selected_country' and country:
+            # Resolve dynamic values (tolerate stray whitespace/casing in the sheet)
+            if str(filter_value_type).strip().lower() == 'dynamic':
+                fv = str(filter_value).strip().lower()
+                if fv == 'selected_country' and country:
                     # Convert country code to data value (e.g., 'FR🇫🇷' -> 'France')
                     filter_value = get_country_data_value(country)
-                elif filter_value == 'selected_week' and week:
+                elif fv == 'selected_week' and week:
                     filter_value = week
-                elif filter_value == 'selected_client' and client:
+                elif fv == 'selected_client' and client:
                     filter_value = client
                 else:
                     continue  # Skip if dynamic value not provided
@@ -175,26 +182,96 @@ class KPICalculationEngine:
             try:
                 if filter_operator == 'equal':
                     # Filter out NaN, then compare as strings (handles 1 vs '1')
-                    filtered_df = filtered_df[filtered_df[filter_field].notna() & (filtered_df[filter_field].astype(str) == str(filter_value))]
+                    filtered_df = filtered_df[filtered_df[resolved_col].notna() & (filtered_df[resolved_col].astype(str) == str(filter_value))]
                 elif filter_operator == 'not_equal':
                     # Filter out NaN, then compare as strings
-                    filtered_df = filtered_df[filtered_df[filter_field].notna() & (filtered_df[filter_field].astype(str) != str(filter_value))]
+                    filtered_df = filtered_df[filtered_df[resolved_col].notna() & (filtered_df[resolved_col].astype(str) != str(filter_value))]
                 elif filter_operator == 'greater_than':
                     # Convert to numeric, dropping non-numeric values
-                    numeric_col = pd.to_numeric(filtered_df[filter_field], errors='coerce')
+                    numeric_col = pd.to_numeric(filtered_df[resolved_col], errors='coerce')
                     filtered_df = filtered_df[numeric_col > float(filter_value)]
                 elif filter_operator == 'less_than':
                     # Convert to numeric, dropping non-numeric values
-                    numeric_col = pd.to_numeric(filtered_df[filter_field], errors='coerce')
+                    numeric_col = pd.to_numeric(filtered_df[resolved_col], errors='coerce')
                     filtered_df = filtered_df[numeric_col < float(filter_value)]
                 elif filter_operator == 'contains':
-                    filtered_df = filtered_df[filtered_df[filter_field].astype(str).str.contains(str(filter_value), na=False)]
+                    filtered_df = filtered_df[filtered_df[resolved_col].astype(str).str.contains(str(filter_value), na=False)]
             except Exception as e:
                 print(f"⚠️  Warning: Could not apply filter {filter_field} {filter_operator} {filter_value}: {str(e)}")
                 continue
         
         return filtered_df
     
+    def _get_project_client_map(self) -> Dict[str, str]:
+        """Build map of Project -> Normalized Client."""
+        df_projects = self.get_raw_data('MNT Projects RAW')
+        if df_projects is None:
+            return {}
+        
+        # Find client col
+        client_col = next((c for c in df_projects.columns if str(c).strip().lower() == 'client'), None)
+        proj_col = next((c for c in df_projects.columns if str(c).strip().lower() in ['project name', 'project id']), None)
+        
+        if not client_col or not proj_col:
+            return {}
+            
+        # Build map
+        mapping = {}
+        # Iterate over relevant columns
+        subset = df_projects[[proj_col, client_col]].dropna()
+        for _, row in subset.iterrows():
+            proj = str(row[proj_col]).strip()
+            cli = str(row[client_col]).strip().lower()
+            if proj and cli:
+                mapping[proj] = cli
+        return mapping
+
+    def _enrich_and_filter_by_client(self, df: pd.DataFrame, client: str = None) -> pd.DataFrame:
+        """
+        Enrich dataframe with Client column if missing (via Project lookup),
+        AND filter by client if specified.
+        Returns the modified dataframe (with Client column added if possible).
+        """
+        if df.empty:
+            return df
+            
+        # 1. Check if Client column exists
+        client_col = next((c for c in df.columns if str(c).strip().lower() == 'client'), None)
+        
+        # 2. If not, try to add it via Projects
+        if not client_col:
+            proj_col = next((c for c in df.columns if str(c).strip().lower() in ['projects', 'project id', 'project name']), None)
+            if proj_col:
+                mapping = self._get_project_client_map()
+                if mapping:
+                    # Create a reverse lookup function or map
+                    # Since mapping is Project -> Client, and DataFrame has Projects (comma sep sometimes), 
+                    # we need to be careful. For defining the column, let's just take the first matching client.
+                    def get_cli(val):
+                        projs = [p.strip() for p in str(val).split(',') if p.strip()]
+                        for p in projs:
+                            if p in mapping:
+                                return mapping[p] # Returns normalized lowercase client
+                        return None
+                    
+                    df = df.copy()
+                    df['Client'] = df[proj_col].apply(get_cli)
+                    # Capitalize for display niceness, though internal logic is lower
+                    df['Client'] = df['Client'].str.title()
+                    client_col = 'Client'
+
+        # 3. Filter if client is specified
+        if client:
+            target_client = str(client).strip().lower()
+            if client_col:
+                # Use the column we found or created
+                return df[df[client_col].astype(str).str.strip().str.lower() == target_client]
+            else:
+                # Still no client column? Then we can't accept this data if a specific client was requested.
+                return df.iloc[0:0]
+        
+        return df
+
     def calculate_kpi(self, kpi_id: str, country: str = None, 
                      week: str = None, client: str = None) -> Dict[str, Any]:
         """
@@ -228,6 +305,9 @@ class KPICalculationEngine:
         
         # Apply filters
         filtered_data = self.apply_filters(raw_data, kpi_def, country, week, client)
+
+        # Enforce client filter (and enrich data)
+        filtered_data = self._enrich_and_filter_by_client(filtered_data, client)
         
         # Calculate based on aggregation type
         aggregation_type = kpi_def['aggregation_type']
@@ -263,7 +343,8 @@ class KPICalculationEngine:
             'record_count': len(filtered_data),
             'filters_applied': {
                 'country': country,
-                'week': week
+                'week': week,
+                'client': client
             }
         }
     
@@ -324,7 +405,8 @@ class KPICalculationEngine:
             },
             'filters_applied': {
                 'country': country,
-                'week': week
+                'week': week,
+                'client': client
             }
         }
     
@@ -357,16 +439,23 @@ class KPICalculationEngine:
         
         # Apply filters
         filtered_data = self.apply_filters(raw_data, kpi_def, country, week, client)
-        if client and 'Client' in filtered_data.columns:
-            filtered_data = filtered_data[filtered_data['Client'] == client]
+        # Apply client filter (and enrich)
+        filtered_data = self._enrich_and_filter_by_client(filtered_data, client)
         
         # Get root cause dimensions
         breakdowns = {}
-        for i in range(1, 6):
+        # Normalize column names for matching (handles casing/whitespace differences)
+        rc_col_map = {str(c).strip().lower(): c for c in filtered_data.columns}
+        # Support up to 6 configured dimensions (root_cause_dim_1 .. root_cause_dim_6)
+        for i in range(1, 7):
             dim_field = kpi_def.get(f'root_cause_dim_{i}', '')
-            if dim_field and dim_field != '' and dim_field in filtered_data.columns:
-                breakdown = filtered_data[dim_field].value_counts().to_dict()
-                breakdowns[dim_field] = breakdown
+            dim_key = str(dim_field).strip().lower()
+            if not dim_key:
+                continue
+            resolved_dim = rc_col_map.get(dim_key)
+            if resolved_dim:
+                breakdown = filtered_data[resolved_dim].value_counts().to_dict()
+                breakdowns[resolved_dim] = breakdown
         
         return {
             'kpi_id': kpi_id,
@@ -417,8 +506,8 @@ class KPICalculationEngine:
         # Note: We want to show the data relevant to the selected week/country
         # so we apply the same filters as the KPI calculation
         filtered_data = self.apply_filters(raw_data, kpi_def, country, week, client)
-        if client and 'Client' in filtered_data.columns:
-            filtered_data = filtered_data[filtered_data['Client'] == client]
+        
+        filtered_data = self._enrich_and_filter_by_client(filtered_data, client)
         
         return filtered_data
     

@@ -283,9 +283,16 @@ def get_available_clients(engine):
         if not source_table:
             continue
         df = engine.get_raw_data(source_table)
-        if df is None or 'Client' not in df.columns:
+        if df is None:
             continue
-        vals = [c for c in df['Client'].dropna().unique().tolist() if str(c).strip() != '']
+            
+        # Find client column case-insensitively
+        client_col = next((c for c in df.columns if str(c).strip().lower() == 'client'), None)
+        
+        if not client_col:
+            continue
+            
+        vals = [c for c in df[client_col].dropna().unique().tolist() if str(c).strip() != '']
         clients.update(vals)
     return sorted(clients)
 
@@ -333,6 +340,39 @@ def create_kpi_week_table_with_changes(engine, country, weeks, client=None):
         table_data.append(row)
     
     return pd.DataFrame(table_data), weeks
+
+
+def render_debug_panel(engine, country, weeks, client):
+    """Lightweight debug panel to inspect client/root-cause wiring."""
+    with st.expander("🐞 Debug (dev)"):
+        st.markdown("Catalog and filters")
+        cols = engine.catalogue.columns.tolist()
+        st.write("Has filter_7_field/operator/value_type/value:",
+                 all(f"filter_7_{part}" in cols for part in ["field", "operator", "value_type", "value"]))
+        st.write("Has root_cause_dim_6:", "root_cause_dim_6" in cols)
+
+        # Pick a sample KPI to probe
+        sample_kpi = engine.catalogue.iloc[0]
+        kpi_id = sample_kpi["kpi_id"]
+        wk = weeks[-1] if weeks else None
+
+        st.markdown("Sample data check")
+        st.write("Sample KPI:", kpi_id, "-", sample_kpi.get("kpi_name", ""))
+        st.write("Week used:", wk)
+        try:
+            df = engine.get_filtered_kpi_data(kpi_id, country, wk, client)
+            st.write("Filtered rows:", len(df))
+            if "Client" in df.columns:
+                st.write("Client uniques (first 5):", df["Client"].dropna().astype(str).str.strip().unique()[:5])
+        except Exception as e:
+            st.write("Error fetching filtered data:", e)
+
+        st.markdown("Root cause breakdown keys")
+        try:
+            breakdown = engine.get_root_cause_breakdown(kpi_id, country, wk, client)
+            st.write("Breakdown dimensions:", list(breakdown.get("breakdowns", {}).keys()))
+        except Exception as e:
+            st.write("Error fetching breakdown:", e)
 
 def format_value(value, agg_type):
     """Format value based on aggregation type."""
@@ -621,7 +661,7 @@ def show_cell_diagnostic(engine, kpi_id, kpi_name, country, week, client=None):
     # -------------------
     
     # Display metrics
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
         value = result.get('value', 0)
@@ -635,8 +675,11 @@ def show_cell_diagnostic(engine, kpi_id, kpi_name, country, week, client=None):
     
     with col3:
         st.metric("Country", country)
-    
+        
     with col4:
+        st.metric("Client", client if client else "All")
+    
+    with col5:
         if 'record_count' in result:
             st.metric("Records", f"{result['record_count']:,}")
     
@@ -872,6 +915,7 @@ def main():
     st.sidebar.markdown(f"**Country:** {selected_country}")
     st.sidebar.markdown(f"**Client:** {selected_client_option}")
     st.sidebar.markdown(f"**Weeks:** {len(selected_weeks)} weeks")
+    render_debug_panel(engine, selected_country, selected_weeks, selected_client)
     
     # Main content
     if st.session_state.selected_cell is None:
