@@ -232,8 +232,9 @@ def render_ai_chat(retriever, engine, selected_country, selected_weeks, selected
         filters_text = f"Country={selected_country}; Weeks={', '.join(selected_weeks)}; Client={selected_client or 'All'}"
 
         system_prompt = (
-            "You are a concise KPI assistant. Answer only using the provided context, KPI summaries, and filters. "
-            "If you don't have enough info, say so. Do not make up numbers."
+            "You are a concise KPI assistant. Use the provided 'KPI grouped breakdowns' and 'Detailed aggregates' to explain *why* changes occurred. "
+            "Look for 'root_cause' or 'project' dimensions to identify drivers of change. "
+            "Answer only using the provided context. If you don't have enough info, say so."
         )
         user_block = (
             f"User question: {user_prompt}\n\n"
@@ -480,7 +481,7 @@ def build_kpi_group_summaries(engine, weeks, country, client, user_prompt, max_d
     candidates = []
     for col in data.columns:
         lc = col.lower()
-        if any(key in lc for key in ["project", "technician", "client", "status", "region"]):
+        if any(key in lc for key in ["project", "technician", "client", "status", "region", "root_cause"]):
             candidates.append(col)
     # Deduplicate while preserving order
     seen = set()
@@ -574,7 +575,7 @@ def build_targeted_aggregate(engine, weeks, country, client, user_prompt, kpi_id
     lines = [f"KPI: {kpi_name} (detailed aggregates)", "Overall: " + " | ".join(overall)]
 
     dims = []
-    candidate_keys = ["project", "technician", "client", "status", "region", "team"]
+    candidate_keys = ["project", "technician", "client", "status", "region", "team", "root_cause"]
     for col in data.columns:
         lc = col.lower()
         if any(key in lc for key in candidate_keys):
